@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>실시간 점수 매기기</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --panel2:#f0f2f5; --line:#dfe3e8;
+  --fg:#16181d; --muted:#636b78; --accent:#3f5efb; --accent-fg:#fff;
+  --ok:#1a9c5b; --warn:#c27803; --bad:#d64545; --chip:#e9ecf2; --radius:12px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14161a; --panel:#1c1f25; --panel2:#23272f; --line:#31363f;
+  --fg:#e9ecf1; --muted:#98a1b0; --accent:#7b8cff; --accent-fg:#0f1115;
+  --ok:#46c98a; --warn:#e0a33a; --bad:#ef7676; --chip:#2b3038;
+}}
+:root[data-theme="dark"]{
+  --bg:#14161a; --panel:#1c1f25; --panel2:#23272f; --line:#31363f;
+  --fg:#e9ecf1; --muted:#98a1b0; --accent:#7b8cff; --accent-fg:#0f1115;
+  --ok:#46c98a; --warn:#e0a33a; --bad:#ef7676; --chip:#2b3038;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font-size:15px;line-height:1.55;
+  font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-text-size-adjust:100%}
+.wrap{max-width:900px;margin:0 auto;padding:18px 16px 60px}
+h1{font-size:20px;margin:0;letter-spacing:-.02em}
+h2{font-size:17px;margin:0 0 10px}
+h3{font-size:14px;margin:0 0 8px;color:var(--muted);font-weight:600}
+p{margin:0 0 10px}
+.muted{color:var(--muted)}.small{font-size:13px}.tiny{font-size:12px}
+header.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+header.top .spacer{flex:1}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row.tight{gap:6px}
+button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--panel2);color:var(--fg);
+  padding:9px 14px;border-radius:10px;cursor:pointer;transition:.12s}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent}
+button.ghost{background:transparent}
+button.sm{padding:5px 10px;font-size:13px;border-radius:8px}
+input[type=text],select{font:inherit;background:var(--panel2);color:var(--fg);border:1px solid var(--line);
+  border-radius:9px;padding:9px 11px;width:100%}
+input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+label.file{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border:1px dashed var(--line);
+  border-radius:10px;cursor:pointer;font-weight:600;background:var(--panel2)}
+label.file input{display:none}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border-radius:999px;padding:4px 11px;font-size:13px;font-weight:600}
+.chip.done{background:color-mix(in srgb,var(--ok) 22%,transparent);color:var(--ok)}
+.chip.wait{background:color-mix(in srgb,var(--warn) 20%,transparent);color:var(--warn)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+.dot.on{background:var(--ok)}
+.code{font-family:ui-monospace,Menlo,monospace;font-size:26px;letter-spacing:.24em;font-weight:700}
+.tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:max-content}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{background:var(--panel2);font-size:12.5px;color:var(--muted);font-weight:700}
+tbody tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.crit{display:grid;grid-template-columns:1fr 120px auto;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}
+.crit:last-child{border-bottom:none}
+.crit .nm{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.crit .w{font-size:12px;color:var(--muted);font-weight:500}
+.crit.skipped .nm,.crit.skipped input{opacity:.4}
+@media (max-width:520px){.crit{grid-template-columns:1fr 96px auto;gap:8px}}
+.bar{height:6px;background:var(--panel2);border-radius:999px;overflow:hidden;margin:10px 0}
+.bar>i{display:block;height:100%;background:var(--accent);transition:width .25s}
+.err{color:var(--bad);font-size:13px;font-weight:600;margin-bottom:10px}
+.banner{background:color-mix(in srgb,var(--accent) 12%,transparent);border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);
+  padding:10px 12px;border-radius:10px;font-size:13.5px;margin-bottom:12px}
+.banner.warn{background:color-mix(in srgb,var(--warn) 14%,transparent);border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.modal .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:860px;width:100%;
+  max-height:82vh;overflow:auto;padding:18px}
+ol.steps{padding-left:18px;margin:0}
+ol.steps li{margin-bottom:5px}
+pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px;font-size:12.5px;overflow-x:auto;margin:6px 0 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:640px){.grid2{grid-template-columns:1fr}}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:none;border-radius:0;background:transparent}
+.seg button.on{background:var(--accent);color:var(--accent-fg)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>실시간 점수 매기기</h1>
+    <div class="spacer"></div>
+    <div id="hdr" class="small muted"></div>
+  </header>
+  <div id="app"><div class="card muted">불러오는 중…</div></div>
+</div>
+
+<script type="module">
+/* ═══════════════════════════════════════════════════════════════
+   ① 여기에 Firebase 콘솔에서 받은 설정을 붙여넣으세요.
+      (프로젝트 설정 → 내 앱 → 웹 앱 → firebaseConfig)
+      databaseURL 이 반드시 포함되어야 합니다. (Realtime Database)
+   ═══════════════════════════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey: "",
+  authDomain: "",
+  databaseURL: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+/* ═══════════════════════════════════════════════════════════════ */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import { getDatabase, ref, onValue, set, update, get, remove, onDisconnect, runTransaction, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
+
+const $ = s => document.querySelector(s);
+const APP = $("#app"), HDR = $("#hdr");
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const rid = p => p+Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
+const num = (x,d) => (Math.round(x*Math.pow(10,d))/Math.pow(10,d)).toFixed(d);
+function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){return null;}return v;}
+/* Firebase 는 배열/객체를 상황에 따라 다르게 돌려주므로 항상 객체처럼 다룹니다 */
+const obj = o => (o && typeof o === "object") ? o : {};
+const arr = o => Array.isArray(o) ? o.filter(x=>x!=null) : Object.values(obj(o));
+
+/* ───────── state ───────── */
+const S = {
+  ready:false, configured:false, db:null,
+  viewerId: ls("sc.viewer") || ls("sc.viewer", rid("v_")),
+  name: ls("sc.name") || "",
+  peerId: rid("p_"),
+  code:null, memberId:null, room:null, presence:{},
+  unsub:[], screen:"lobby",
+  draft:null, draftFor:null, skip:{},
+  pending:null, err:"", banner:"", modal:null, lastSig:""
+};
+
+/* ───────── boot ───────── */
+try{
+  if(!firebaseConfig.databaseURL) throw new Error("no config");
+  const app = initializeApp(firebaseConfig);
+  S.db = getDatabase(app);
+  S.configured = true;
+}catch(e){ S.configured = false; }
+S.ready = true;
+render(true);
+
+/* ───────── db helpers ───────── */
+const R  = p => ref(S.db, p);
+const Proom = c => "rooms/"+c;
+
+function detach(){ S.unsub.forEach(u=>{try{u();}catch(e){}}); S.unsub=[]; }
+function attach(code){
+  detach();
+  S.unsub.push(onValue(R(Proom(code)), snap=>{
+    S.room = snap.val();
+    if(!S.room){ S.banner="방이 사라졌습니다."; leaveLocal(); render(true); return; }
+    S.room.targets = arr(S.room.targets);
+    S.room.criteria = arr(S.room.criteria);
+    hostTick(); render();
+  }, err=>{ S.err="연결 오류: "+err.message; render(true); }));
+  /* 접속 표시 */
+  const pref = R(Proom(code)+"/presence/"+S.peerId);
+  onDisconnect(pref).remove();
+  set(pref, { memberId:S.memberId, at:serverTimestamp() }).catch(()=>{});
+}
+
+/* ───────── model ───────── */
+const members = () => obj(S.room && S.room.members);
+const scoresOf = () => obj(S.room && S.room.scores);
+const memberList = () => Object.keys(members()).map(id=>Object.assign({id}, members()[id]));
+const activeMembers = () => memberList().filter(m=>m.ownerId);
+const me = () => members()[S.memberId] || null;
+const isHost = () => !!(S.room && S.room.hostMemberId===S.memberId);
+function allScorerIds(){
+  const ids = Object.keys(members());
+  Object.keys(scoresOf()).forEach(id=>{ if(ids.indexOf(id)<0) ids.push(id); });
+  return ids;
+}
+function nameOf(id){
+  const m=members()[id]; if(m) return m.name||"이름없음";
+  const s=scoresOf()[id]; return (s&&s.name)||"이전 멤버";
+}
+function myCursor(){
+  if(!S.room) return 0;
+  const T=S.room.targets.length;
+  if(S.room.mode==="solo"){ const m=me(); return Math.min(Math.max(0,(m&&m.cursor)||0),Math.max(0,T-1)); }
+  return Math.min(Math.max(0,S.room.cursor||0),Math.max(0,T-1));
+}
+const myScore = () => scoresOf()[S.memberId] || {v:{},done:{}};
+function isDone(mid,ti){ const s=scoresOf()[mid]; return !!(s && obj(s.done)[ti]); }
+function doneCount(mid){ const s=scoresOf()[mid]; if(!s) return 0; const d=obj(s.done); return Object.keys(d).filter(k=>d[k]).length; }
+function allFinished(){
+  if(!S.room) return false;
+  const T=S.room.targets.length, act=activeMembers();
+  return !!T && act.length>0 && act.every(m=>doneCount(m.id)>=T);
+}
+
+/* ───────── 점수 계산 ─────────
+   각 항목은 0~100 으로 입력받고, 항목 배점(max)에 비례해 환산됩니다.
+   항목 환산점 = 평균/100 × 항목 배점
+   총점 = (환산점 합 / 집계된 항목 배점 합) × 만점
+   → 아무도 점수를 주지 않은(전원 스킵) 항목은 배점 합에서도 빠집니다. */
+function aggregate(){
+  const crits=S.room.criteria, targets=S.room.targets, ids=allScorerIds();
+  const full = Number(S.room.maxTotal)||100;
+  return targets.map((tname,ti)=>{
+    const per = crits.map((c,ci)=>{
+      let sum=0,n=0;
+      ids.forEach(mid=>{
+        if(!isDone(mid,ti)) return;
+        const row=obj(obj(scoresOf()[mid].v)[ti]);
+        const v=row[ci];
+        if(typeof v==="number" && isFinite(v)){ sum+=v; n++; }
+      });
+      if(!n) return {avg:null,pts:null,n:0};
+      const avg=sum/n;
+      return { avg:avg, pts: avg/100*(Number(c.max)||0), n:n };
+    });
+    let earned=0, maxSum=0;
+    per.forEach((p,ci)=>{ if(p.pts!==null){ earned+=p.pts; maxSum+=Number(crits[ci].max)||0; } });
+    return { name:tname, per, total: maxSum>0 ? earned/maxSum*full : null };
+  });
+}
+
+/* ───────── 방장 자동 진행 ───────── */
+let ticking=false;
+async function hostTick(){
+  if(ticking||!isHost()||!S.room) return;
+  const T=S.room.targets.length;
+  if(S.room.phase!=="scoring"||!T) return;
+  ticking=true;
+  try{
+    if(S.room.mode==="sync"){
+      const cur=Math.min(S.room.cursor||0,T-1);
+      const maxR=typeof S.room.maxReached==="number"?S.room.maxReached:cur;
+      const act=activeMembers();
+      if(act.length>0 && act.every(m=>isDone(m.id,cur)) && cur===maxR){
+        if(cur+1<T) await update(R(Proom(S.code)),{cursor:cur+1,maxReached:cur+1});
+        else if(allFinished()) await update(R(Proom(S.code)),{phase:"results"});
+      }
+    }else if(allFinished()){
+      await update(R(Proom(S.code)),{phase:"results"});
+    }
+  }catch(e){}
+  ticking=false;
+}
+
+/* ───────── 파일 파싱 ───────── */
+function parseTargets(text){
+  let lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(lines.length===1 && lines[0].indexOf(",")>-1) lines=lines[0].split(",").map(s=>s.trim()).filter(Boolean);
+  return lines.map(s=>s.replace(/^[-*·]\s*/,""));
+}
+/* 첫 줄 = 만점(예: "200" 또는 "만점 200"), 그 다음 줄부터 = 항목 배점 */
+function parseCriteria(text){
+  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(lines.length<2) throw new Error("첫 줄에 만점, 그 다음 줄부터 항목을 적어주세요.");
+  const head=lines[0].match(/([0-9]+(?:\.[0-9]+)?)/);
+  if(!head) throw new Error("첫 줄에서 만점을 찾지 못했습니다. 예: 200");
+  const maxTotal=parseFloat(head[1]);
+  const criteria=lines.slice(1).map(line=>{
+    line=line.replace(/^[-*·]\s*/,"");
+    const m=line.match(/^(.*\S)\s*[\s,:\t=|/]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:점)?$/);
+    if(!m) throw new Error("‘"+line+"’ 줄에서 배점을 읽지 못했습니다. 예: 창의성 50");
+    return { name:m[1].trim().replace(/[,:=|/]$/,"").trim(), max:parseFloat(m[2]) };
+  }).filter(c=>c.name);
+  if(!criteria.length) throw new Error("항목이 없습니다.");
+  return { maxTotal, criteria };
+}
+const readFile = f => new Promise((res,rej)=>{
+  const r=new FileReader();
+  r.onload=()=>res(String(r.result||"")); r.onerror=()=>rej(new Error("파일을 읽지 못했습니다."));
+  r.readAsText(f,"utf-8");
+});
+
+/* ───────── 저장 / 이어하기 ───────── */
+function buildSession(){
+  return {
+    app:"realtime-scoring", version:2, savedAt:new Date().toISOString(),
+    mode:S.room.mode, maxTotal:S.room.maxTotal,
+    targets:S.room.targets, criteria:S.room.criteria,
+    cursor:S.room.cursor||0, maxReached:S.room.maxReached||0,
+    members: allScorerIds().map(id=>({ id, name:nameOf(id), cursor:(members()[id]&&members()[id].cursor)||0 })),
+    scores: allScorerIds().reduce((o,id)=>{ const s=scoresOf()[id];
+      if(s) o[id]={name:nameOf(id), v:obj(s.v), done:obj(s.done)}; return o; },{})
+  };
+}
+function download(filename,text){
+  try{
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));
+    a.download=filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  }catch(e){ S.err="파일 저장에 실패했습니다."; render(true); }
+}
+
+/* ───────── 방 생성 / 입장 ───────── */
+function leaveLocal(){ detach(); S.code=null; S.memberId=null; S.room=null; S.screen="lobby"; }
+
+async function createRoom(seed){
+  const code=String(Math.floor(1000+Math.random()*9000));
+  const snap=await get(R(Proom(code)));
+  if(snap.exists()) return createRoom(seed);
+  const mid=rid("m_");
+  const room={
+    code, hostMemberId:mid, createdAt:Date.now(),
+    phase:"setup", mode:(seed&&seed.mode)||"sync",
+    maxTotal:(seed&&seed.maxTotal)||100,
+    targets:(seed&&seed.targets)||[], criteria:(seed&&seed.criteria)||[],
+    cursor:(seed&&seed.cursor)||0, maxReached:(seed&&seed.maxReached)||0,
+    resumed:!!seed,
+    members:{}, scores:{}
+  };
+  room.members[mid]={name:S.name,ownerId:S.viewerId,cursor:0,joinedAt:Date.now()};
+  if(seed){
+    (seed.members||[]).forEach(m=>{ if(m&&m.id&&m.id!==mid)
+      room.members[m.id]={name:m.name||"이전 멤버",ownerId:null,cursor:m.cursor||0,joinedAt:Date.now()}; });
+    Object.keys(seed.scores||{}).forEach(id=>{ const s=seed.scores[id];
+      room.scores[id]={name:s.name||"이전 멤버",v:obj(s.v),done:obj(s.done)}; });
+  }
+  await set(R(Proom(code)),room);
+  S.code=code; S.memberId=mid; ls("sc.member."+code,mid); ls("sc.lastcode",code);
+  S.screen="room"; attach(code); render(true);
+}
+
+async function enterRoom(code){
+  code=String(code||"").trim();
+  if(!/^\d{4}$/.test(code)){ S.err="4자리 방 코드를 입력하세요."; return render(true); }
+  const snap=await get(R(Proom(code)));
+  if(!snap.exists()){ S.err="그런 방이 없습니다."; return render(true); }
+  const data=snap.val();
+  const saved=ls("sc.member."+code);
+  const ms=obj(data.members);
+  if(saved && ms[saved] && ms[saved].ownerId===S.viewerId){
+    S.code=code; S.memberId=saved; S.screen="room"; attach(code); return render(true);
+  }
+  S.pending={ code, slots:Object.keys(ms).map(id=>Object.assign({id},ms[id])) };
+  S.screen="join"; S.err=""; render(true);
+}
+
+async function claimSlot(code,mid){
+  const mref=R(Proom(code)+"/members/"+mid);
+  const res=await runTransaction(mref,cur=>{
+    if(!cur) return;   // 자리 없음 → 중단
+    if(cur.ownerId && cur.ownerId!==S.viewerId) return;   // abort
+    cur.ownerId=S.viewerId; cur.name=S.name||cur.name||"이름없음";
+    return cur;
+  });
+  if(!res.committed){ S.err="이미 사용 중인 자리입니다."; return render(true); }
+  S.code=code; S.memberId=mid; ls("sc.member."+code,mid); ls("sc.lastcode",code);
+  S.pending=null; S.screen="room"; attach(code); render(true);
+}
+
+async function joinAsNew(code){
+  const mid=rid("m_");
+  const res=await runTransaction(R(Proom(code)+"/members"),cur=>{
+    const m=cur||{};
+    const active=Object.keys(m).filter(k=>m[k]&&m[k].ownerId).length;
+    if(active>=7) return;                                  // abort
+    m[mid]={name:S.name,ownerId:S.viewerId,cursor:0,joinedAt:Date.now()};
+    return m;
+  });
+  if(!res.committed){ S.err="방이 가득 찼습니다. (동시 접속 최대 7명)"; return render(true); }
+  S.code=code; S.memberId=mid; ls("sc.member."+code,mid); ls("sc.lastcode",code);
+  S.pending=null; S.screen="room"; attach(code); render(true);
+}
+
+async function leaveRoom(){
+  try{
+    if(S.code&&S.memberId) await update(R(Proom(S.code)+"/members/"+S.memberId),{ownerId:null});
+    if(S.code) await remove(R(Proom(S.code)+"/presence/"+S.peerId));
+  }catch(e){}
+  ls("sc.member."+S.code,null);
+  leaveLocal(); render(true);
+}
+
+/* ───────── 점수 입력 ───────── */
+function ensureDraft(ti){
+  if(S.draftFor===ti&&S.draft) return;
+  const row=obj(obj(myScore().v)[ti]);
+  S.draft={}; S.skip={};
+  S.room.criteria.forEach((c,ci)=>{
+    const v=row[ci];
+    if(v==="skip"){ S.skip[ci]=true; S.draft[ci]=""; }
+    else if(typeof v==="number") S.draft[ci]=String(v);
+    else S.draft[ci]="";
+  });
+  S.draftFor=ti;
+}
+async function submitTarget(){
+  const ti=myCursor(), crits=S.room.criteria, vals={};
+  for(let ci=0;ci<crits.length;ci++){
+    if(S.skip[ci]){ vals[ci]="skip"; continue; }
+    const raw=(S.draft[ci]||"").trim();
+    if(raw===""){ S.err="‘"+crits[ci].name+"’ 항목의 점수를 입력하거나 스킵하세요."; return render(true); }
+    const v=Number(raw);
+    if(!isFinite(v)||v<0||v>100){ S.err="‘"+crits[ci].name+"’: 0 이상 100 이하의 실수만 가능합니다."; return render(true); }
+    vals[ci]=v;
+  }
+  S.err="";
+  await update(R(Proom(S.code)+"/scores/"+S.memberId),{
+    name:S.name, ["v/"+ti]:vals, ["done/"+ti]:true
+  });
+  if(S.room.mode==="solo"){
+    const T=S.room.targets.length;
+    if(ti+1<T){ await update(R(Proom(S.code)+"/members/"+S.memberId),{cursor:ti+1}); S.draftFor=null; }
+    else S.banner="모든 대상의 점수 매기기를 마쳤습니다. 다른 멤버를 기다리는 중…";
+  }
+  render(true);
+}
+async function moveCursor(delta){
+  const T=S.room.targets.length, ti=Math.max(0,Math.min(T-1,myCursor()+delta));
+  if(S.room.mode==="solo") await update(R(Proom(S.code)+"/members/"+S.memberId),{cursor:ti});
+  else{
+    if(!isHost()) return;
+    await update(R(Proom(S.code)),{cursor:ti,maxReached:Math.max(S.room.maxReached||0,ti)});
+  }
+  S.draftFor=null; S.err=""; render(true);
+}
+
+/* ───────── 렌더 ───────── */
+function onlineIds(){
+  const set=new Set();
+  Object.values(obj(S.room&&S.room.presence)).forEach(p=>{ if(p&&p.memberId) set.add(p.memberId); });
+  return set;
+}
+function refreshLive(){ const b=$("#liveArea"); if(b) b.innerHTML=liveHTML(); }
+
+function render(force){
+  if(!S.ready){ return; }
+  if(!S.configured){ APP.innerHTML=viewSetupGuide(); HDR.textContent=""; return; }
+  let html="";
+  if(S.screen==="lobby") html=viewLobby();
+  else if(S.screen==="join") html=viewJoin();
+  else if(!S.room) html='<div class="card muted">방 정보를 불러오는 중…</div>';
+  else if(S.room.phase==="setup") html=viewSetup();
+  else if(S.room.phase==="scoring") html=viewScoring();
+  else html=viewResults();
+
+  const sig=S.screen+"|"+(S.room?S.room.phase+"|"+S.room.mode+"|"+myCursor()+"|"+S.room.targets.length:"")+"|"+S.err+"|"+S.banner+"|"+(S.modal?"m":"");
+  if(!force&&sig===S.lastSig&&S.room&&S.room.phase==="scoring"){ refreshLive(); return; }
+  S.lastSig=sig;
+  APP.innerHTML=(S.modal?modalHTML():"")+html;
+  HDR.textContent=S.code?("방 "+S.code+" · "+(S.name||"이름없음")+(isHost()?" (방장)":"")):"";
+  bind();
+}
+const errHTML = () => S.err?'<div class="err">'+esc(S.err)+'</div>':"";
+const bannerHTML = () => S.banner?'<div class="banner">'+esc(S.banner)+'</div>':"";
+
+function viewSetupGuide(){
+  return '<div class="card"><h2>Firebase 설정이 필요합니다</h2>'+
+  '<p class="small">이 파일을 편집기로 열어 맨 위 <code>firebaseConfig</code> 부분에 콘솔에서 받은 값을 붙여넣으세요. '+
+  '<b>Realtime Database</b>를 사용하므로 <code>databaseURL</code>이 반드시 있어야 합니다.</p>'+
+  '<ol class="steps small"><li>Firebase 콘솔 → 프로젝트 만들기</li>'+
+  '<li>빌드 → Realtime Database → 데이터베이스 만들기 (테스트 모드)</li>'+
+  '<li>프로젝트 설정 → 내 앱 → 웹 앱 추가 → firebaseConfig 복사</li>'+
+  '<li>이 HTML 파일 상단에 붙여넣고 저장 후 새로고침</li></ol></div>';
+}
+
+function viewLobby(){
+  return bannerHTML()+errHTML()+
+  '<div class="card"><h2>시작하기</h2><h3>내 이름</h3>'+
+  '<input type="text" id="nick" maxlength="20" placeholder="예: 김철수" value="'+esc(S.name)+'">'+
+  '<div class="row" style="margin-top:14px">'+
+    '<button class="primary" data-act="create">방 만들기</button>'+
+    '<label class="file">이어하기 파일 불러오기<input type="file" id="resumeFile" accept=".json,.txt"></label>'+
+  '</div>'+
+  '<div style="margin-top:18px"><h3>방 참여</h3><div class="row">'+
+    '<input type="text" id="joincode" inputmode="numeric" maxlength="4" placeholder="4자리 코드" style="max-width:160px" value="'+esc(ls("sc.lastcode")||"")+'">'+
+    '<button data-act="join">입장</button></div></div></div>'+
+  '<div class="card small muted"><h3>txt 파일 형식</h3><div class="grid2">'+
+    '<div><div class="tiny">① 대상 목록 (한 줄에 하나)</div><pre class="fmt">1번 참가자\n2번 참가자\n3번 참가자</pre></div>'+
+    '<div><div class="tiny">② 만점 + 항목별 배점</div><pre class="fmt">200\n창의성 50\n완성도 25\n전달력 125</pre></div>'+
+  '</div><p class="tiny" style="margin-top:8px">첫 줄이 만점이고, 그 아래 각 항목이 몇 점을 담당하는지 적습니다. '+
+  '점수는 항목마다 0~100으로 입력하며, 배점에 비례해 환산됩니다.</p></div>';
+}
+
+function viewJoin(){
+  const p=S.pending||{slots:[]};
+  const unclaimed=p.slots.filter(s=>!s.ownerId), active=p.slots.filter(s=>s.ownerId).length;
+  let h=errHTML()+'<div class="card"><h2>방 '+esc(p.code)+' 입장</h2>'+
+    '<h3>내 이름</h3><input type="text" id="nick" maxlength="20" value="'+esc(S.name)+'">'+
+    '<p class="small muted" style="margin-top:10px">현재 접속 멤버 '+active+'명 / 최대 7명</p>';
+  if(unclaimed.length){
+    h+='<h3 style="margin-top:14px">이전에 저장된 멤버로 이어서 참여</h3><div class="row">';
+    unclaimed.forEach(s=>{h+='<button data-act="claim" data-mid="'+esc(s.id)+'">'+esc(s.name||"이전 멤버")+'로 참여</button>';});
+    h+='</div>';
+  }
+  h+='<div class="row" style="margin-top:16px"><button class="primary" data-act="joinnew"'+(active>=7?" disabled":"")+'>새 멤버로 참여</button>'+
+     '<button class="ghost" data-act="home">돌아가기</button></div></div>';
+  return h;
+}
+
+function liveHTML(){
+  if(!S.room) return "";
+  const on=onlineIds(), T=S.room.targets.length, cur=S.room.cursor||0;
+  let h='<div class="row tight">';
+  memberList().forEach(m=>{
+    if(!m.ownerId && !scoresOf()[m.id]) return;
+    let cls="chip", label=m.name||"이름없음";
+    if(S.room.phase==="scoring"){
+      if(S.room.mode==="sync"){ const d=isDone(m.id,cur); cls+=d?" done":" wait"; label+=d?" 제출완료":" 입력중"; }
+      else { const dc=doneCount(m.id); cls+=dc>=T?" done":" wait"; label+=" "+dc+"/"+T; }
+    }
+    if(!m.ownerId) label+=" (미접속)";
+    h+='<span class="'+cls+'"><i class="dot'+(on.has(m.id)?" on":"")+'"></i>'+esc(label)+(m.id===S.room.hostMemberId?" 👑":"")+'</span>';
+  });
+  return h+'</div>';
+}
+
+function viewSetup(){
+  const R0=S.room, host=isHost(), crits=R0.criteria;
+  const sum=crits.reduce((a,c)=>a+(Number(c.max)||0),0);
+  let h=bannerHTML()+errHTML();
+  h+='<div class="card"><h2 style="margin:0">방 코드</h2><div class="code">'+esc(R0.code)+'</div>'+
+     '<p class="small muted">이 코드를 공유해 최대 7명까지 입장할 수 있습니다.</p>'+
+     '<div id="liveArea">'+liveHTML()+'</div>'+
+     '<div class="row" style="margin-top:12px"><button class="sm ghost" data-act="leave">방 나가기</button></div></div>';
+
+  h+='<div class="card"><h2>1. 파일 불러오기</h2>';
+  if(host) h+='<div class="row"><label class="file">대상 목록 txt<input type="file" id="fTargets" accept=".txt"></label>'+
+              '<label class="file">만점·항목 배점 txt<input type="file" id="fCrits" accept=".txt"></label></div>';
+  h+='<div class="grid2" style="margin-top:12px">'+
+     '<div><h3>대상 ('+R0.targets.length+')</h3>'+(R0.targets.length?'<div class="small">'+R0.targets.map(esc).join(" · ")+'</div>':'<div class="small muted">아직 없음</div>')+'</div>'+
+     '<div><h3>항목 ('+crits.length+') · 만점 '+esc(R0.maxTotal)+'점</h3>'+
+       (crits.length?'<div class="small">'+crits.map(c=>esc(c.name)+' <span class="muted">'+c.max+'점</span>').join(" · ")+'</div>':'<div class="small muted">아직 없음</div>')+
+     '</div></div>';
+  if(crits.length && Math.abs(sum-(Number(R0.maxTotal)||0))>0.001)
+    h+='<div class="banner warn" style="margin-top:12px">항목 배점의 합('+num(sum,2)+')이 만점('+esc(R0.maxTotal)+')과 다릅니다. '+
+       '총점은 만점 기준으로 환산해 계산합니다.</div>';
+  h+='</div>';
+
+  h+='<div class="card"><h2>2. 모드 선택</h2><div class="seg">'+
+     '<button data-act="mode" data-mode="sync" class="'+(R0.mode==="sync"?"on":"")+'"'+(host?"":" disabled")+'>모두 동시에 매기기</button>'+
+     '<button data-act="mode" data-mode="solo" class="'+(R0.mode==="solo"?"on":"")+'"'+(host?"":" disabled")+'>각자 매기기</button></div>'+
+     '<p class="small muted" style="margin-top:10px">'+(R0.mode==="sync"
+       ?"모두가 같은 대상을 보고, 전원이 제출해야 다음 대상으로 넘어갑니다. 이전 대상으로 되돌아가는 것은 방장만 할 수 있습니다."
+       :"각자 자기 속도로 넘기고 되돌아갈 수 있습니다. 전원이 끝까지 마쳐야 결과가 표시됩니다.")+'</p></div>';
+
+  if(host){
+    const ready=R0.targets.length>0&&crits.length>0;
+    h+='<div class="card"><h2>3. 시작</h2><button class="primary" data-act="start"'+(ready?"":" disabled")+'>시작하기</button>'+
+       (ready?"":'<p class="small muted" style="margin-top:8px">두 txt 파일을 모두 불러와야 시작할 수 있습니다.</p>')+
+       (R0.resumed?'<p class="small" style="margin-top:8px">이어하기 데이터가 불러와졌습니다. 기존 점수는 유지됩니다.</p>':"")+'</div>';
+  }else h+='<div class="card muted">방장이 시작하기를 누르면 자동으로 시작됩니다.</div>';
+  return h;
+}
+
+function viewScoring(){
+  const R0=S.room, T=R0.targets.length, ti=myCursor(), crits=R0.criteria;
+  ensureDraft(ti);
+  const submitted=isDone(S.memberId,ti), canNav=R0.mode==="solo"||isHost();
+  let h=bannerHTML()+errHTML();
+  h+='<div class="card"><div class="small muted">'+(R0.mode==="sync"?"모두 동시에 매기기":"각자 매기기")+' · 대상 '+(ti+1)+' / '+T+' · 만점 '+esc(R0.maxTotal)+'점</div>'+
+     '<h2 style="font-size:22px;margin:6px 0 0">'+esc(R0.targets[ti])+'</h2>'+
+     '<div class="bar"><i style="width:'+Math.round((ti+1)/T*100)+'%"></i></div>'+
+     '<div id="liveArea">'+liveHTML()+'</div></div>';
+
+  h+='<div class="card">';
+  crits.forEach((c,ci)=>{
+    const sk=!!S.skip[ci];
+    h+='<div class="crit'+(sk?" skipped":"")+'"><div class="nm">'+esc(c.name)+'<div class="w">배점 '+c.max+'점</div></div>'+
+       '<input type="text" inputmode="decimal" data-ci="'+ci+'" class="scoreInput" placeholder="0~100" value="'+esc(S.draft[ci]||"")+'"'+(sk?" disabled":"")+'>'+
+       '<button class="sm '+(sk?"primary":"ghost")+'" data-act="skip" data-ci="'+ci+'">'+(sk?"스킵됨":"스킵")+'</button></div>';
+  });
+  h+='<div class="row" style="margin-top:14px"><button class="primary" data-act="submit">'+(submitted?"다시 제출":"제출")+'</button>'+
+     '<button class="ghost sm" data-act="skipall">전체 스킵</button>'+(submitted?'<span class="chip done">제출 완료</span>':"")+'</div>'+
+     '<p class="tiny muted" style="margin-top:10px">0~100으로 입력하면 항목 배점에 비례해 환산됩니다. '+
+     '스킵한 항목은 0점이 아니라 <b>평균 계산에서 제외</b>됩니다.</p></div>';
+
+  h+='<div class="card"><div class="row">'+
+     '<button data-act="prev"'+(canNav&&ti>0?"":" disabled")+'>← 이전 대상</button>'+
+     '<button data-act="next"'+(canNav&&ti<T-1?"":" disabled")+'>다음 대상 →</button>'+
+     '<div style="flex:1"></div>'+(isHost()?'<button class="sm" data-act="forceresult">결과 보기(방장)</button>':"")+'</div>'+
+     '<p class="tiny muted" style="margin-top:8px">'+(R0.mode==="sync"
+        ?(isHost()?"방장만 대상을 이동할 수 있습니다. 전원 제출 시 자동으로 넘어갑니다.":"전원이 제출하면 자동으로 넘어갑니다. 되돌아가려면 방장에게 요청하세요.")
+        :"자유롭게 이동하며 점수를 수정할 수 있습니다.")+'</p></div>';
+
+  h+='<div class="card"><h3>중간 저장</h3><div class="row">'+
+     '<button class="sm" data-act="savejson">json으로 저장</button>'+
+     '<button class="sm" data-act="savetxt">txt로 저장</button>'+
+     '<button class="sm ghost" data-act="leave">방 나가기</button></div>'+
+     '<p class="tiny muted" style="margin-top:8px">저장한 파일을 첫 화면의 ‘이어하기 파일 불러오기’로 열면 새 멤버를 추가해 이어서 진행할 수 있습니다.</p></div>';
+  return h;
+}
+
+function viewResults(){
+  const R0=S.room, crits=R0.criteria, rows=aggregate();
+  let h=bannerHTML()+errHTML();
+  h+='<div class="card"><h2>최종 결과 <span class="small muted">(만점 '+esc(R0.maxTotal)+'점)</span></h2>'+
+     '<p class="small muted">각 항목은 배점으로 환산된 점수이며, 총점은 그 합입니다. (스킵된 항목은 제외 후 만점 기준으로 환산)</p>'+
+     '<div id="liveArea">'+liveHTML()+'</div></div>';
+  h+='<div class="tablewrap"><table><thead><tr><th>대상</th>'+
+     crits.map(c=>'<th class="num">'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
+     '<th class="num">총점<div class="tiny muted">/'+esc(R0.maxTotal)+'점</div></th><th></th></tr></thead><tbody>';
+  rows.forEach((r,ti)=>{
+    h+='<tr><td><b>'+esc(r.name)+'</b></td>'+
+       r.per.map(p=>'<td class="num">'+(p.pts===null?'<span class="muted">–</span>':num(p.pts,2))+'</td>').join("")+
+       '<td class="num"><b>'+(r.total===null?"–":num(r.total,2))+'</b></td>'+
+       '<td><button class="sm" data-act="detail" data-ti="'+ti+'">자세히 보기</button></td></tr>';
+  });
+  h+='</tbody></table></div>';
+  h+='<div class="card" style="margin-top:14px"><h3>결과 다운로드</h3><div class="row">'+
+     '<button class="primary sm" data-act="dl1">총점만 (txt)</button>'+
+     '<button class="primary sm" data-act="dl2">항목별 + 총점 (txt)</button>'+
+     '<button class="sm" data-act="savejson">전체 데이터 (json)</button></div>'+
+     '<p class="tiny muted" style="margin-top:8px">구성원 누구나 다운로드할 수 있습니다.</p></div>';
+  h+='<div class="card"><div class="row">'+(isHost()?'<button class="sm" data-act="backscore">점수 매기기로 돌아가기</button>':"")+
+     '<button class="sm ghost" data-act="leave">방 나가기</button></div></div>';
+  return h;
+}
+
+function modalHTML(){
+  const ti=S.modal.ti, R0=S.room, crits=R0.criteria, ids=allScorerIds(), full=Number(R0.maxTotal)||100;
+  let h='<div class="modal" data-act="closemodal"><div class="box" data-stop="1">'+
+    '<div class="row"><h2 style="margin:0">'+esc(R0.targets[ti])+' · 멤버별 점수</h2><div style="flex:1"></div>'+
+    '<button class="sm ghost" data-act="closemodal">닫기</button></div>'+
+    '<p class="tiny muted" style="margin-top:6px">괄호 안은 입력값(0~100), 앞의 숫자는 배점 환산 점수입니다.</p>'+
+    '<div class="tablewrap" style="margin-top:8px"><table><thead><tr><th>멤버</th>'+
+    crits.map(c=>'<th class="num">'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
+    '<th class="num">개인 총점</th></tr></thead><tbody>';
+  ids.forEach(mid=>{
+    if(!isDone(mid,ti)){
+      h+='<tr><td>'+esc(nameOf(mid))+'</td>'+crits.map(()=>'<td class="num muted">미제출</td>').join("")+'<td class="num muted">–</td></tr>';
+      return;
+    }
+    const row=obj(obj(scoresOf()[mid].v)[ti]);
+    let earned=0,maxSum=0;
+    crits.forEach((c,ci)=>{ const v=row[ci]; if(typeof v==="number"){ earned+=v/100*(Number(c.max)||0); maxSum+=Number(c.max)||0; } });
+    h+='<tr><td>'+esc(nameOf(mid))+'</td>'+crits.map((c,ci)=>{
+      const v=row[ci];
+      if(v==="skip") return '<td class="num muted">스킵</td>';
+      if(typeof v==="number") return '<td class="num">'+num(v/100*(Number(c.max)||0),2)+' <span class="tiny muted">('+num(v,1)+')</span></td>';
+      return '<td class="num muted">–</td>';
+    }).join("")+'<td class="num">'+(maxSum>0?num(earned/maxSum*full,2):"–")+'</td></tr>';
+  });
+  return h+'</tbody></table></div></div></div>';
+}
+
+/* ───────── 이벤트 ───────── */
+function bind(){
+  const nick=$("#nick");
+  if(nick) nick.addEventListener("input",e=>{ S.name=e.target.value.trim().slice(0,20); ls("sc.name",S.name); });
+  APP.querySelectorAll(".scoreInput").forEach(i=>i.addEventListener("input",e=>{ S.draft[e.target.dataset.ci]=e.target.value; }));
+
+  const rf=$("#resumeFile");
+  if(rf) rf.addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{
+      const d=JSON.parse(await readFile(f));
+      if(!d||!Array.isArray(d.targets)) throw new Error("형식이 올바르지 않습니다.");
+      if(!S.name){ S.err="먼저 이름을 입력하세요."; return render(true); }
+      S.err=""; S.banner="이어하기 데이터를 불러왔습니다.";
+      await createRoom(d);
+    }catch(err){ S.err="이어하기 파일을 읽을 수 없습니다: "+err.message; render(true); }
+  });
+  const ft=$("#fTargets");
+  if(ft) ft.addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{
+      const list=parseTargets(await readFile(f));
+      if(!list.length) throw new Error("대상이 비어 있습니다.");
+      S.err=""; await update(R(Proom(S.code)),{targets:list});
+    }catch(err){ S.err=err.message; render(true); }
+  });
+  const fc=$("#fCrits");
+  if(fc) fc.addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{
+      const parsed=parseCriteria(await readFile(f));
+      S.err=""; await update(R(Proom(S.code)),{criteria:parsed.criteria,maxTotal:parsed.maxTotal});
+    }catch(err){ S.err=err.message; render(true); }
+  });
+
+  APP.querySelectorAll("[data-act]").forEach(b=>b.addEventListener("click",ev=>{
+    if(b.dataset.act==="closemodal"&&ev.target!==b&&ev.target.closest("[data-stop]")&&!ev.target.dataset.act) return;
+    ev.stopPropagation(); handle(b.dataset.act,b.dataset);
+  }));
+}
+
+async function handle(act,d){
+  S.err="";
+  try{
+    if(act==="create"){ if(!S.name){S.err="이름을 입력하세요.";return render(true);} S.banner=""; await createRoom(null); }
+    else if(act==="join"){ if(!S.name){S.err="이름을 입력하세요.";return render(true);} await enterRoom(($("#joincode")||{}).value); }
+    else if(act==="claim"){ if(!S.name){S.err="이름을 입력하세요.";return render(true);} await claimSlot(S.pending.code,d.mid); }
+    else if(act==="joinnew"){ if(!S.name){S.err="이름을 입력하세요.";return render(true);} await joinAsNew(S.pending.code); }
+    else if(act==="home"){ S.pending=null; S.screen="lobby"; render(true); }
+    else if(act==="leave"){ await leaveRoom(); }
+    else if(act==="mode"){ await update(R(Proom(S.code)),{mode:d.mode}); }
+    else if(act==="start"){ await update(R(Proom(S.code)),{phase:"scoring"}); S.draftFor=null; S.banner=""; }
+    else if(act==="skip"){ S.skip[d.ci]=!S.skip[d.ci]; if(S.skip[d.ci]) S.draft[d.ci]=""; render(true); }
+    else if(act==="skipall"){ S.room.criteria.forEach((c,ci)=>S.skip[ci]=true); render(true); }
+    else if(act==="submit"){ S.banner=""; await submitTarget(); }
+    else if(act==="prev"){ await moveCursor(-1); }
+    else if(act==="next"){ await moveCursor(1); }
+    else if(act==="forceresult"){ await update(R(Proom(S.code)),{phase:"results"}); }
+    else if(act==="backscore"){ await update(R(Proom(S.code)),{phase:"scoring"}); S.draftFor=null; }
+    else if(act==="detail"){ S.modal={ti:Number(d.ti)}; render(true); }
+    else if(act==="closemodal"){ S.modal=null; render(true); }
+    else if(act==="savejson") download("scoring-"+S.code+".json",JSON.stringify(buildSession(),null,2));
+    else if(act==="savetxt")  download("scoring-"+S.code+".txt", JSON.stringify(buildSession(),null,2));
+    else if(act==="dl1"){
+      const rows=aggregate();
+      download("결과_총점.txt", rows.map(r=>r.name+" : "+(r.total===null?"-":num(r.total,2))).join("\n")+"\n");
+    }
+    else if(act==="dl2"){
+      const rows=aggregate(), crits=S.room.criteria;
+      const head="# 만점 "+S.room.maxTotal+"점 · 항목 순서: "+crits.map(c=>c.name+"("+c.max+"점)").join(" / ")+" / 총점\n";
+      download("결과_항목별.txt", head+rows.map(r=>r.name+" : "+r.per.map(p=>p.pts===null?"-":num(p.pts,2)).join(" / ")+" / "+(r.total===null?"-":num(r.total,2))).join("\n")+"\n");
+    }
+  }catch(e){ S.err="오류: "+((e&&e.message)||"알 수 없음"); render(true); }
+}
+
+window.addEventListener("beforeunload",()=>{ try{ if(S.code) remove(R(Proom(S.code)+"/presence/"+S.peerId)); }catch(e){} });
+</script>
+</body>
+</html>
