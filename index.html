@@ -115,9 +115,6 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .gradeStage{width:100%;max-width:640px;display:flex;flex-direction:column;gap:14px}
 .gradeStage.single{position:relative;min-height:180px;display:flex;align-items:center;justify-content:center}
 .gradeStage.single .gradeCard{width:100%;max-width:480px;position:absolute}
-.gradeDots{display:flex;gap:8px;justify-content:center;margin-top:18px}
-.gradeDot{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.28);transition:background .25s,transform .25s}
-.gradeDot.on{background:#fff;transform:scale(1.15)}
 .gradeSkip{position:fixed;top:16px;right:16px;z-index:10000;background:rgba(255,255,255,.15)!important;
   color:#fff!important;border-color:rgba(255,255,255,.4)!important}
 .gradeClose{margin:22px auto 0;display:block}
@@ -141,24 +138,43 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
   0%{transform:translateY(-16px) rotate(0deg);opacity:1;}
   100%{transform:translateY(340px) rotate(420deg);opacity:0;}
 }
-.gradeCard{position:relative;overflow:hidden;border-radius:14px;padding:18px 20px;color:#fff;
-  animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both;}
-.gradeCard h3{margin:0 0 4px;font-size:20px}
-.gradeCard .gcut{font-size:13px;opacity:.88}
+.gradeCard{position:relative;overflow:hidden;border-radius:14px;padding:20px 22px;color:#fff;
+  animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both;text-align:center}
+.gradeCard .gbadge{display:inline-block;background:rgba(255,255,255,.22);border-radius:999px;
+  padding:3px 12px;font-size:12.5px;font-weight:700;letter-spacing:.02em;margin-bottom:8px}
+.gradeCard h3{margin:0 0 4px;font-size:22px}
+.gradeCard .gcut{font-size:15px;opacity:.92;font-weight:600}
 .gradeCard .gnames{font-size:13px;opacity:.92;margin-top:8px;line-height:1.5;overflow-wrap:anywhere}
-.gradeCard.tier-song{background:#7d8494}
-.gradeCard.tier-wan{background:#bd7f42}
-.gradeCard.tier-bak{background:#3fa864}
-.gradeCard.tier-bae{background:#4670d6}
-.gradeCard.tier-beom{background:#8e4fc9;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 1.8s ease-in-out infinite;
-  --glow-color:rgba(142,79,201,.65)}
+/* 송급: 회색 */
+.gradeCard.tier-song{background:#767d8a;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 2s ease-in-out infinite;
+  --glow-color:rgba(150,157,170,.55)}
+/* 완급: 연두색 */
+.gradeCard.tier-wan{background:#8bc34a;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 2s ease-in-out infinite;
+  --glow-color:rgba(139,195,74,.6)}
+/* 박급: 하늘색 */
+.gradeCard.tier-bak{background:#40b4e6;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 2s ease-in-out infinite;
+  --glow-color:rgba(64,180,230,.6)}
+/* 배급: 보라색 */
+.gradeCard.tier-bae{background:#9256d9;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 1.9s ease-in-out infinite;
+  --glow-color:rgba(146,86,217,.6)}
+/* 범급: 은색(메탈릭 샤인) */
+.gradeCard.tier-beom{background:linear-gradient(100deg,#9aa1ab 20%,#f4f6f8 45%,#9aa1ab 70%);background-size:300% 100%;color:#2b2f36;
+  animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeShine 2.2s linear infinite,gradeGlow 1.7s ease-in-out infinite;
+  --glow-color:rgba(210,214,220,.85)}
+.gradeCard.tier-beom .gbadge{background:rgba(0,0,0,.12);color:#2b2f36}
+/* 도급: 금색 */
 .gradeCard.tier-do{background:linear-gradient(100deg,#b8891f 20%,#ffe58a 45%,#b8891f 70%);background-size:300% 100%;
   animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeShine 2.4s linear infinite,gradeGlow 1.6s ease-in-out infinite;
   --glow-color:rgba(224,179,42,.75)}
+/* 양급: 무지개 */
 .gradeCard.tier-yang{background:linear-gradient(90deg,#ff5ea8,#ffb347,#fff066,#6bffb8,#5ec8ff,#a26bff,#ff5ea8);
   background-size:300% 100%;
   animation:gradeCardIn .6s cubic-bezier(.2,.9,.3,1.3) both,rainbowShift 3s linear infinite,gradeGlow 1.4s ease-in-out infinite;
   --glow-color:rgba(255,255,255,.85)}
+.gradeProgress{width:100%;max-width:480px;height:5px;border-radius:999px;background:rgba(255,255,255,.18);
+  overflow:hidden;margin-bottom:10px}
+.gradeProgressBar{height:100%;background:#fff;border-radius:999px;transition:width .25s ease}
+.gradeCount{color:#fff;opacity:.75;font-size:12.5px;margin-bottom:14px}
 .confetti{position:absolute;top:0;width:8px;height:14px;border-radius:2px;opacity:0;
   animation:confettiFall 1.6s ease-in forwards;pointer-events:none}
 </style>
@@ -1178,7 +1194,28 @@ function spawnConfetti(container){
     setTimeout(()=>{ try{p.remove();}catch(e){} },2200);
   }
 }
+/* g(computeGrades/buildGrades 결과)를 '개별 대상' 카드 목록으로 펼친다.
+   순서: 송급→완급→박급→배급→범급→도급→양급, 각 등급 안에서는 낮은 점수→높은 점수. */
+function buildRevealList(g){
+  const order=[
+    {tier:"song", name:"송급"}, {tier:"wan", name:"완급"}, {tier:"bak", name:"박급"},
+    {tier:"bae", name:"배급"}, {tier:"beom", name:"범급"}, {tier:"do", name:"도급"}
+  ];
+  const list=[];
+  order.forEach(t=>{
+    const grp=g.groups.find(x=>x.name===t.name);
+    (grp?grp.members:[]).slice().sort((a,b)=>a.total-b.total).forEach(m=>{
+      list.push({ tier:t.tier, gradeName:t.name, name:m.name, total:m.total });
+    });
+  });
+  g.special.members.slice().sort((a,b)=>a.total-b.total).forEach(m=>{
+    list.push({ tier:"yang", gradeName:"양급", name:m.name, total:m.total, special:true });
+  });
+  return list;
+}
+const DWELL_BY_TIER={ song:480, wan:480, bak:480, bae:520, beom:600, do:800, yang:1300 };
 async function playGradeReveal(g){
+  const list=buildRevealList(g);
   const ov=document.createElement("div");
   ov.className="gradeOverlay";
   const skip=document.createElement("button");
@@ -1189,46 +1226,43 @@ async function playGradeReveal(g){
   const title=document.createElement("div");
   title.className="gradeStage-title";
   title.innerHTML="<h2>🏆 등급 발표</h2>";
+  const progress=document.createElement("div");
+  progress.className="gradeProgress";
+  const progressBar=document.createElement("div");
+  progressBar.className="gradeProgressBar";
+  progressBar.style.width="0%";
+  progress.appendChild(progressBar);
+  const count=document.createElement("div");
+  count.className="gradeCount";
   const stage=document.createElement("div");
   stage.className="gradeStage single";
-  const dots=document.createElement("div");
-  dots.className="gradeDots";
-  ov.appendChild(skip); ov.appendChild(title); ov.appendChild(stage); ov.appendChild(dots);
+  ov.appendChild(skip); ov.appendChild(title); ov.appendChild(progress); ov.appendChild(count); ov.appendChild(stage);
   document.body.appendChild(ov);
 
-  const seq=[
-    {tier:"song", label:"송급",  info:g.groups.find(x=>x.name==="송급"),  delay:1000},
-    {tier:"wan",  label:"완급",  info:g.groups.find(x=>x.name==="완급"),  delay:1000},
-    {tier:"bak",  label:"박급",  info:g.groups.find(x=>x.name==="박급"),  delay:1000},
-    {tier:"bae",  label:"배급",  info:g.groups.find(x=>x.name==="배급"),  delay:1100},
-    {tier:"beom", label:"범급",  info:g.groups.find(x=>x.name==="범급"),  delay:1200},
-    {tier:"do",   label:"도급",  info:g.groups.find(x=>x.name==="도급"),  delay:1400},
-    {tier:"yang", label:"양급",  info:g.special,                          delay:1800, special:true}
-  ];
-  seq.forEach(()=>{ const d=document.createElement("div"); d.className="gradeDot"; dots.appendChild(d); });
-  const dotEls=dots.querySelectorAll(".gradeDot");
+  if(!list.length){
+    count.textContent="등급을 매길 수 있는 대상이 없습니다.";
+  }
 
   let current=null;
-  for(let i=0;i<seq.length;i++){
-    const step=seq[i];
+  for(let i=0;i<list.length;i++){
+    const item=list[i];
     /* 이전 카드를 먼저 살짝 사라지게 한 뒤, 새 카드를 그 자리에 교체해서 넣는다(한 장씩만 보임) */
     if(current){
       current.classList.add("leaving");
-      await sleep(320);
+      await sleep(280);
       try{current.remove();}catch(e){}
     }
     const card=document.createElement("div");
-    card.className="gradeCard tier-"+step.tier;
-    const info=step.info||{members:[],cut:null};
-    const names=info.members.length ? info.members.map(m=>esc(m.name)).join(", ") : "해당자 없음";
-    card.innerHTML="<h3>"+(step.special?"✨ ":"")+esc(step.label)+"</h3>"+
-      "<div class='gcut'>"+info.members.length+"명"+(info.cut!==null?" · 컷 "+num(info.cut,2)+"점":"")+"</div>"+
-      "<div class='gnames'>"+names+"</div>";
+    card.className="gradeCard tier-"+item.tier;
+    card.innerHTML="<div class='gbadge'>"+(item.special?"✨ ":"")+esc(item.gradeName)+"</div>"+
+      "<h3>"+esc(item.name)+"</h3>"+
+      "<div class='gcut'>"+num(item.total,2)+"점</div>";
     stage.appendChild(card);
     current=card;
-    dotEls[i].classList.add("on");
-    if(step.special) spawnConfetti(ov);
-    await sleep(skipped ? 250 : step.delay);
+    count.textContent=(i+1)+" / "+list.length+" · "+esc(item.gradeName);
+    progressBar.style.width=Math.round((i+1)/list.length*100)+"%";
+    if(item.special) spawnConfetti(ov);
+    await sleep(skipped ? 60 : (DWELL_BY_TIER[item.tier]||600));
   }
 
   const closeBtn=document.createElement("button");
