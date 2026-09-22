@@ -106,6 +106,51 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .statusrow.done{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
 .statusrow .ok{color:var(--ok);font-weight:700;font-size:12.5px}
 .statusrow .muted{font-size:12.5px}
+
+/* ── 등급 발표 연출 ── */
+.gradeOverlay{position:fixed;inset:0;background:rgba(10,10,16,.78);z-index:9999;
+  display:flex;flex-direction:column;align-items:center;padding:56px 16px 40px;overflow-y:auto}
+.gradeStage-title{color:#fff;text-align:center;margin-bottom:14px}
+.gradeStage-title h2{margin:0;font-size:22px}
+.gradeStage{width:100%;max-width:640px;display:flex;flex-direction:column;gap:14px}
+.gradeSkip{position:fixed;top:16px;right:16px;z-index:10000;background:rgba(255,255,255,.15)!important;
+  color:#fff!important;border-color:rgba(255,255,255,.4)!important}
+.gradeClose{margin:20px auto 0;display:block}
+@keyframes gradeCardIn{
+  0%{opacity:0;transform:translateY(26px) scale(.92);}
+  65%{opacity:1;transform:translateY(-4px) scale(1.03);}
+  100%{opacity:1;transform:translateY(0) scale(1);}
+}
+@keyframes gradeShine{ 0%{background-position:-160% 0;} 100%{background-position:260% 0;} }
+@keyframes gradeGlow{
+  0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0);}
+  50%{box-shadow:0 0 26px 6px var(--glow-color,rgba(255,255,255,.5));}
+}
+@keyframes rainbowShift{ 0%{background-position:0% 50%;} 100%{background-position:200% 50%;} }
+@keyframes confettiFall{
+  0%{transform:translateY(-16px) rotate(0deg);opacity:1;}
+  100%{transform:translateY(340px) rotate(420deg);opacity:0;}
+}
+.gradeCard{position:relative;overflow:hidden;border-radius:14px;padding:18px 20px;color:#fff;
+  animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both;}
+.gradeCard h3{margin:0 0 4px;font-size:20px}
+.gradeCard .gcut{font-size:13px;opacity:.88}
+.gradeCard .gnames{font-size:13px;opacity:.92;margin-top:8px;line-height:1.5;overflow-wrap:anywhere}
+.gradeCard.tier-song{background:#7d8494}
+.gradeCard.tier-wan{background:#bd7f42}
+.gradeCard.tier-bak{background:#3fa864}
+.gradeCard.tier-bae{background:#4670d6}
+.gradeCard.tier-beom{background:#8e4fc9;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 1.8s ease-in-out infinite;
+  --glow-color:rgba(142,79,201,.65)}
+.gradeCard.tier-do{background:linear-gradient(100deg,#b8891f 20%,#ffe58a 45%,#b8891f 70%);background-size:300% 100%;
+  animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeShine 2.4s linear infinite,gradeGlow 1.6s ease-in-out infinite;
+  --glow-color:rgba(224,179,42,.75)}
+.gradeCard.tier-yang{background:linear-gradient(90deg,#ff5ea8,#ffb347,#fff066,#6bffb8,#5ec8ff,#a26bff,#ff5ea8);
+  background-size:300% 100%;
+  animation:gradeCardIn .6s cubic-bezier(.2,.9,.3,1.3) both,rainbowShift 3s linear infinite,gradeGlow 1.4s ease-in-out infinite;
+  --glow-color:rgba(255,255,255,.85)}
+.confetti{position:absolute;top:0;width:8px;height:14px;border-radius:2px;opacity:0;
+  animation:confettiFall 1.6s ease-in forwards;pointer-events:none}
 </style>
 </head>
 <body>
@@ -186,7 +231,9 @@ const Proom = c => "rooms/"+c;
 function detach(){ S.unsub.forEach(u=>{try{u();}catch(e){}}); S.unsub=[]; }
 function attach(code){
   detach();
+  let firstSnap=true;
   S.unsub.push(onValue(R(Proom(code)), snap=>{
+    const prevRevealed = S.room ? !!S.room.gradesRevealed : false;
     S.room = snap.val();
     if(!S.room){ S.banner="방이 사라졌습니다."; leaveLocal(); render(true); return; }
     S.room.targets = arr(S.room.targets);
@@ -196,6 +243,11 @@ function attach(code){
       S.banner="방장에 의해 강퇴되었습니다.";
       leaveLocal(); render(true); return;
     }
+    const nowRevealed=!!S.room.gradesRevealed;
+    if(!firstSnap && !prevRevealed && nowRevealed && S.room.phase==="results"){
+      playGradeReveal(computeGrades());
+    }
+    firstSnap=false;
     hostTick(); render();
   }, err=>{ S.err="연결 오류: "+err.message; render(true); }));
   /* 접속 표시 */
@@ -351,11 +403,11 @@ function trimExtremes(arr){
    나머지 인원(M명)을 대상으로 등급 경계 비율(%)에 M을 곱해 버림한 '순위 컷'으로 6등급을 나눈다.
    예: 도급 컷 = floor(M*6/100) → 순위 1~그컷 까지가 도급.
    경계 비율이 누적(0→6→21→50→79→94→100)이라 항상 1..M 전체를 빈틈없이 덮는다(안전망 코드는 혹시 몰라 추가). */
-function computeGrades(){
-  const rows=aggregate();
-  const all=rows.map((r,ti)=>({ti,name:r.name,total:r.total}));
-  const valid=all.filter(r=>r.total!==null).sort((a,b)=>b.total-a.total);
-  const invalidCount=all.length-valid.length;
+/* rows: [{ti,name,total}, ...] 형태의 순수 데이터를 받아 등급을 계산하는 순수 함수.
+   실시간 방 결과(computeGrades)와 연출 테스트(임의 데이터) 양쪽에서 공용으로 사용. */
+function buildGrades(rows){
+  const valid=rows.filter(r=>r.total!==null && r.total!==undefined).slice().sort((a,b)=>b.total-a.total);
+  const invalidCount=rows.length-valid.length;
   const N=valid.length;
   const specialCount=Math.min(5,N);
   const special=valid.slice(0,specialCount);
@@ -369,23 +421,40 @@ function computeGrades(){
     {name:"완급", from:79, to:94},
     {name:"송급", from:94, to:100}
   ];
-  let prevCut=0;
-  const groups=tiers.map(t=>{
-    const cut=Math.floor(M*t.to/100);
-    const members=rest.slice(prevCut, Math.max(prevCut,cut));
-    prevCut=cut;
-    return { name:t.name, from:t.from, to:t.to, members };
+  /* 등급 경계 비율(%)에 M을 곱해 버림한 '누적 순위 컷'을 등급마다 구한 뒤,
+     각 순위(1..M)를 '자신의 순위가 그 컷 이하인 등급 중 가장 상위(먼저 나오는) 등급'에 배정한다.
+     즉 어떤 순위가 두 컷 사이(예: 도급 컷과 범급 컷 사이)에 걸쳐 어느 컷도 만족 못 시키는 경우는
+     생길 수 없지만, 혹시 생기더라도 이 방식 자체가 자동으로 그 두 등급 중 더 상위 등급을 고른다
+     (마지막 등급(송급)의 컷은 항상 M과 같으므로 모든 순위는 반드시 하나의 등급에 걸리게 된다). */
+  const cuts=tiers.map(t=>Math.floor(M*t.to/100));
+  const memberLists=tiers.map(()=>[]);
+  rest.forEach((m,idx)=>{
+    const rank=idx+1;
+    let gi=cuts.findIndex(c=>rank<=c);
+    if(gi===-1) gi=tiers.length-1; // 이론상 도달하지 않는 방어 코드
+    memberLists[gi].push(m);
   });
-  /* 안전망: 이론상 발생하지 않지만, 혹시 누락된 순위가 있으면 가장 높은 등급(도급)에 편입 */
-  const assigned=new Set();
-  groups.forEach(g=>g.members.forEach(m=>assigned.add(m.ti)));
-  rest.forEach(m=>{ if(!assigned.has(m.ti)) groups[0].members.push(m); });
   const cutOf=arr=>arr.length?Math.min(...arr.map(m=>m.total)):null;
   return {
     invalidCount, N, M,
     special:{ name:"양급", members:special, cut:cutOf(special) },
-    groups:groups.map(g=>({ name:g.name, from:g.from, to:g.to, members:g.members, cut:cutOf(g.members) }))
+    groups:tiers.map((t,i)=>({ name:t.name, from:t.from, to:t.to, members:memberLists[i], cut:cutOf(memberLists[i]) }))
   };
+}
+function computeGrades(){
+  const rows=aggregate().map((r,ti)=>({ti,name:r.name,total:r.total}));
+  return buildGrades(rows);
+}
+/* 연출 테스트용: 완성된(전부 채점된 것으로 취급) 임의의 데이터 n개를 만들어낸다.
+   난수 4개의 평균을 쓰는 방식이라 0~100 사이에 고르게 몰리는(종형에 가까운) 점수가 나온다. */
+function genTestRows(n){
+  const rows=[];
+  for(let i=0;i<n;i++){
+    let s=0; for(let k=0;k<4;k++) s+=Math.random();
+    const v=Math.max(0,Math.min(100,(s/4)*100));
+    rows.push({ ti:i, name:"테스트 대상 "+(i+1), total:Math.round(v*100)/100 });
+  }
+  return rows;
 }
 
 /* ───────── 방장 자동 진행 ───────── */
@@ -778,6 +847,9 @@ function viewLobby(){
     '<button data-act="singlestart">개인 채점 시작</button>'+
     '<button data-act="singlecollect">결과 파일 모아서 계산</button>'+
   '</div></div>'+
+  '<div class="card"><h2>등급 발표 연출 테스트</h2>'+
+  '<p class="small muted">실제 방이 없어도 임의로 완성된 100개짜리 가짜 데이터로 등급 발표 연출을 미리 볼 수 있습니다.</p>'+
+  '<button data-act="testgrades">테스트 데이터로 미리보기 (100개)</button></div>'+
   '<div class="card small muted"><h3>txt 파일 형식</h3><div class="grid2">'+
     '<div><div class="tiny">① 대상 목록 (한 줄에 하나)</div><pre class="fmt">1번 참가자\n2번 참가자\n3번 참가자</pre></div>'+
     '<div><div class="tiny">② 만점 + 항목별 배점(+설명)</div><pre class="fmt">200\n창의성 50 얼마나 새로운 아이디어인지\n완성도 25\n전달력 125 발표 태도와 전달력</pre></div>'+
@@ -1063,8 +1135,8 @@ function viewScoring(){
   return h;
 }
 
-function gradesTableHTML(){
-  const g=computeGrades();
+function gradesTableHTML(g){
+  g=g||computeGrades();
   let h='';
   if(g.invalidCount>0)
     h+='<p class="small muted" style="margin-bottom:8px">채점이 완료되지 않아 총점이 없는 대상 '+g.invalidCount+'개는 등급 산정에서 제외되었습니다.</p>';
@@ -1079,6 +1151,70 @@ function gradesTableHTML(){
      '</tbody></table></div>';
   return h;
 }
+
+/* ───────── 등급 발표 연출 ─────────
+   #app 바깥(document.body)에 직접 오버레이를 붙여서, 앱의 일반 재렌더링(APP.innerHTML 교체)과
+   무관하게 애니메이션이 끊기지 않고 끝까지 재생되도록 한다. */
+const sleep=ms=>new Promise(res=>setTimeout(res,ms));
+function spawnConfetti(container){
+  const colors=["#ff5ea8","#ffb347","#fff066","#6bffb8","#5ec8ff","#a26bff"];
+  for(let i=0;i<36;i++){
+    const p=document.createElement("div");
+    p.className="confetti";
+    p.style.left=(Math.random()*100)+"%";
+    p.style.background=colors[Math.floor(Math.random()*colors.length)];
+    p.style.animationDelay=(Math.random()*0.4)+"s";
+    container.appendChild(p);
+    setTimeout(()=>{ try{p.remove();}catch(e){} },2200);
+  }
+}
+async function playGradeReveal(g){
+  const ov=document.createElement("div");
+  ov.className="gradeOverlay";
+  const skip=document.createElement("button");
+  skip.className="gradeSkip sm ghost";
+  skip.textContent="넘기기";
+  let skipped=false;
+  skip.addEventListener("click",()=>{ skipped=true; });
+  const title=document.createElement("div");
+  title.className="gradeStage-title";
+  title.innerHTML="<h2>🏆 등급 발표</h2>";
+  const stage=document.createElement("div");
+  stage.className="gradeStage";
+  ov.appendChild(skip); ov.appendChild(title); ov.appendChild(stage);
+  document.body.appendChild(ov);
+
+  const seq=[
+    {tier:"song", label:"송급",  info:g.groups.find(x=>x.name==="송급"),  delay:900},
+    {tier:"wan",  label:"완급",  info:g.groups.find(x=>x.name==="완급"),  delay:900},
+    {tier:"bak",  label:"박급",  info:g.groups.find(x=>x.name==="박급"),  delay:900},
+    {tier:"bae",  label:"배급",  info:g.groups.find(x=>x.name==="배급"),  delay:1000},
+    {tier:"beom", label:"범급",  info:g.groups.find(x=>x.name==="범급"),  delay:1100},
+    {tier:"do",   label:"도급",  info:g.groups.find(x=>x.name==="도급"),  delay:1300},
+    {tier:"yang", label:"양급",  info:g.special,                          delay:1600, special:true}
+  ];
+
+  for(const step of seq){
+    if(!skipped) await sleep(step.delay);
+    const card=document.createElement("div");
+    card.className="gradeCard tier-"+step.tier;
+    const info=step.info||{members:[],cut:null};
+    const names=info.members.length ? info.members.map(m=>esc(m.name)).join(", ") : "해당자 없음";
+    card.innerHTML="<h3>"+(step.special?"✨ ":"")+esc(step.label)+"</h3>"+
+      "<div class='gcut'>"+info.members.length+"명"+(info.cut!==null?" · 컷 "+num(info.cut,2)+"점":"")+"</div>"+
+      "<div class='gnames'>"+names+"</div>";
+    stage.appendChild(card);
+    if(step.special) spawnConfetti(ov);
+    ov.scrollTop=ov.scrollHeight;
+  }
+
+  const closeBtn=document.createElement("button");
+  closeBtn.className="primary gradeClose";
+  closeBtn.textContent="닫기";
+  closeBtn.addEventListener("click",()=>{ try{ov.remove();}catch(e){} });
+  stage.appendChild(closeBtn);
+}
+
 function sortArrow(key){
   if(!S.resultSort || S.resultSort.key!==key) return "";
   return S.resultSort.dir==="asc"?" ▲":" ▼";
@@ -1141,7 +1277,9 @@ function viewResults(){
   h+='<div class="card" style="margin-top:14px"><h3>등급 발표</h3>';
   if(!R0.gradesRevealed){
     h+= isHost()
-      ? '<button class="primary sm" data-act="revealgrades">등급 발표</button><p class="tiny muted" style="margin-top:8px">누르면 모든 참가자 화면에 등급이 함께 공개됩니다.</p>'
+      ? '<div class="row"><button class="primary sm" data-act="revealgrades">등급 발표</button>'+
+        '<button class="sm ghost" data-act="testgrades">연출 미리보기(테스트 데이터)</button></div>'+
+        '<p class="tiny muted" style="margin-top:8px">‘등급 발표’를 누르면 실제 이 방의 결과로 모든 참가자 화면에 함께 공개됩니다. ‘연출 미리보기’는 나에게만 보이는 가짜 데이터 테스트입니다.</p>'
       : '<p class="small muted">방장이 등급을 발표하면 여기에 표시됩니다.</p>';
   }else{
     h+=gradesTableHTML();
@@ -1363,6 +1501,7 @@ async function handle(act,d){
     else if(act==="next"){ await moveCursor(1); }
     else if(act==="forceresult"){ await update(R(Proom(S.code)),{phase:"results"}); }
     else if(act==="revealgrades"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await update(R(Proom(S.code)),{gradesRevealed:true}); }
+    else if(act==="testgrades"){ playGradeReveal(buildGrades(genTestRows(100))); }
     else if(act==="backscore"){ await update(R(Proom(S.code)),{phase:"scoring"}); S.draftFor=null; }
     else if(act==="detail"){ S.modal={ti:Number(d.ti)}; render(true); }
     else if(act==="sortresult"){
