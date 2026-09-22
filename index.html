@@ -108,73 +108,81 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .statusrow .muted{font-size:12.5px}
 
 /* ── 등급 발표 연출 ── */
-.gradeOverlay{position:fixed;inset:0;background:rgba(10,10,16,.78);z-index:9999;
+.gradeOverlay{position:fixed;inset:0;background:rgba(10,10,16,.82);z-index:9999;
   display:flex;flex-direction:column;align-items:center;padding:56px 16px 40px;overflow-y:auto}
 .gradeStage-title{color:#fff;text-align:center;margin-bottom:14px}
 .gradeStage-title h2{margin:0;font-size:22px}
-.gradeStage{width:100%;max-width:640px;display:flex;flex-direction:column;gap:14px}
-.gradeStage.single{position:relative;min-height:180px;display:flex;align-items:center;justify-content:center}
-.gradeStage.single .gradeCard{width:100%;max-width:480px;position:absolute}
+.gradeStage{width:100%;max-width:640px;display:flex;flex-direction:column;gap:14px;align-items:center}
+.gradeStage.single{position:relative;min-height:340px;display:flex;align-items:center;justify-content:center}
+.gradeStage.single .gradeCardWrap{position:absolute}
 .gradeSkip{position:fixed;top:16px;right:16px;z-index:10000;background:rgba(255,255,255,.15)!important;
   color:#fff!important;border-color:rgba(255,255,255,.4)!important}
 .gradeClose{margin:22px auto 0;display:block}
+.gradeProgress{width:100%;max-width:480px;height:5px;border-radius:999px;background:rgba(255,255,255,.18);
+  overflow:hidden;margin-bottom:10px}
+.gradeProgressBar{height:100%;background:#fff;border-radius:999px;transition:width .25s ease}
+.gradeCount{color:#fff;opacity:.75;font-size:12.5px;margin-bottom:14px}
+
+/* 세로로 긴 전형적인 카드 모양 + 3D 뒤집기(뒷면→앞면) */
+.gradeCardWrap{width:230px;max-width:72vw;aspect-ratio:5/7;perspective:1200px;
+  animation:gradeCardIn .45s cubic-bezier(.2,.9,.3,1.25) both}
 @keyframes gradeCardIn{
-  0%{opacity:0;transform:translateY(26px) scale(.92);}
-  65%{opacity:1;transform:translateY(-4px) scale(1.03);}
+  0%{opacity:0;transform:translateY(20px) scale(.92);}
   100%{opacity:1;transform:translateY(0) scale(1);}
 }
 @keyframes gradeCardOut{
   0%{opacity:1;transform:scale(1) translateY(0);}
   100%{opacity:0;transform:scale(.9) translateY(-16px);}
 }
-.gradeCard.leaving{animation:gradeCardOut .32s ease forwards!important}
+.gradeCardWrap.leaving{animation:gradeCardOut .3s ease forwards!important}
+.gradeCardInner{position:relative;width:100%;height:100%;transform-style:preserve-3d;
+  transition:transform .65s cubic-bezier(.3,.15,.15,1)}
+.gradeCardInner.flipped{transform:rotateY(180deg)}
+.gradeFace{position:absolute;inset:0;backface-visibility:hidden;border-radius:16px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+  padding:20px 14px;box-shadow:0 10px 28px rgba(0,0,0,.4)}
+.gradeFace.back{background:linear-gradient(150deg,#30333c,#1a1c22);color:#fff}
+.gradeFace.back .backmark{font-size:44px;opacity:.45}
+.gradeFace.front{background:#fff;color:#1c1e24;transform:rotateY(180deg);
+  border:4px solid var(--tier-color,#ccc);animation:gradeGlow 2s ease-in-out infinite}
+.gradeFace .gbadge{display:inline-block;background:rgba(0,0,0,.08);border-radius:999px;
+  padding:3px 12px;font-size:12.5px;font-weight:700;letter-spacing:.02em;margin-bottom:10px}
+.gradeFace h3{margin:0 0 6px;font-size:19px;overflow-wrap:anywhere}
+.gradeFace .gcut{font-size:15px;opacity:.85;font-weight:600}
 @keyframes gradeShine{ 0%{background-position:-160% 0;} 100%{background-position:260% 0;} }
 @keyframes gradeGlow{
-  0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0);}
-  50%{box-shadow:0 0 26px 6px var(--glow-color,rgba(255,255,255,.5));}
+  0%,100%{box-shadow:0 10px 28px rgba(0,0,0,.4),0 0 0 0 rgba(255,255,255,0);}
+  50%{box-shadow:0 10px 28px rgba(0,0,0,.4),0 0 26px 6px var(--glow-color,rgba(255,255,255,.5));}
 }
 @keyframes rainbowShift{ 0%{background-position:0% 50%;} 100%{background-position:200% 50%;} }
 @keyframes confettiFall{
   0%{transform:translateY(-16px) rotate(0deg);opacity:1;}
   100%{transform:translateY(340px) rotate(420deg);opacity:0;}
 }
-.gradeCard{position:relative;overflow:hidden;border-radius:14px;padding:20px 22px;color:#fff;
-  animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both;text-align:center}
-.gradeCard .gbadge{display:inline-block;background:rgba(255,255,255,.22);border-radius:999px;
-  padding:3px 12px;font-size:12.5px;font-weight:700;letter-spacing:.02em;margin-bottom:8px}
-.gradeCard h3{margin:0 0 4px;font-size:22px}
-.gradeCard .gcut{font-size:15px;opacity:.92;font-weight:600}
-.gradeCard .gnames{font-size:13px;opacity:.92;margin-top:8px;line-height:1.5;overflow-wrap:anywhere}
-/* 송급: 회색 */
-.gradeCard.tier-song{background:#767d8a;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 2s ease-in-out infinite;
-  --glow-color:rgba(150,157,170,.55)}
+/* 송급: 회색 테두리 글로우 */
+.gradeFace.front.tier-song{--tier-color:#8991a0;--glow-color:rgba(137,145,160,.55)}
 /* 완급: 연두색 */
-.gradeCard.tier-wan{background:#8bc34a;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 2s ease-in-out infinite;
-  --glow-color:rgba(139,195,74,.6)}
+.gradeFace.front.tier-wan{--tier-color:#8bc34a;--glow-color:rgba(139,195,74,.6)}
 /* 박급: 하늘색 */
-.gradeCard.tier-bak{background:#40b4e6;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 2s ease-in-out infinite;
-  --glow-color:rgba(64,180,230,.6)}
+.gradeFace.front.tier-bak{--tier-color:#40b4e6;--glow-color:rgba(64,180,230,.6)}
 /* 배급: 보라색 */
-.gradeCard.tier-bae{background:#9256d9;animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeGlow 1.9s ease-in-out infinite;
-  --glow-color:rgba(146,86,217,.6)}
-/* 범급: 은색(메탈릭 샤인) */
-.gradeCard.tier-beom{background:linear-gradient(100deg,#9aa1ab 20%,#f4f6f8 45%,#9aa1ab 70%);background-size:300% 100%;color:#2b2f36;
-  animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeShine 2.2s linear infinite,gradeGlow 1.7s ease-in-out infinite;
-  --glow-color:rgba(210,214,220,.85)}
-.gradeCard.tier-beom .gbadge{background:rgba(0,0,0,.12);color:#2b2f36}
-/* 도급: 금색 */
-.gradeCard.tier-do{background:linear-gradient(100deg,#b8891f 20%,#ffe58a 45%,#b8891f 70%);background-size:300% 100%;
-  animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.3) both,gradeShine 2.4s linear infinite,gradeGlow 1.6s ease-in-out infinite;
-  --glow-color:rgba(224,179,42,.75)}
-/* 양급: 무지개 */
-.gradeCard.tier-yang{background:linear-gradient(90deg,#ff5ea8,#ffb347,#fff066,#6bffb8,#5ec8ff,#a26bff,#ff5ea8);
-  background-size:300% 100%;
-  animation:gradeCardIn .6s cubic-bezier(.2,.9,.3,1.3) both,rainbowShift 3s linear infinite,gradeGlow 1.4s ease-in-out infinite;
-  --glow-color:rgba(255,255,255,.85)}
-.gradeProgress{width:100%;max-width:480px;height:5px;border-radius:999px;background:rgba(255,255,255,.18);
-  overflow:hidden;margin-bottom:10px}
-.gradeProgressBar{height:100%;background:#fff;border-radius:999px;transition:width .25s ease}
-.gradeCount{color:#fff;opacity:.75;font-size:12.5px;margin-bottom:14px}
+.gradeFace.front.tier-bae{--tier-color:#9256d9;--glow-color:rgba(146,86,217,.6)}
+/* 범급: 은색(테두리 위 샤인 스윕) */
+.gradeFace.front.tier-beom{--tier-color:#c3c8d1;--glow-color:rgba(211,216,224,.85)}
+/* 도급: 금색(테두리 위 샤인 스윕) */
+.gradeFace.front.tier-do{--tier-color:#e0b32a;--glow-color:rgba(224,179,42,.8)}
+.gradeFace.front.tier-beom::after, .gradeFace.front.tier-do::after{
+  content:"";position:absolute;inset:0;border-radius:12px;pointer-events:none;
+  background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.75) 50%,transparent 60%);
+  background-size:250% 100%;animation:gradeShine 2.2s linear infinite}
+/* 양급: 무지개 테두리(그라데이션 보더) */
+.gradeFace.front.tier-yang{
+  --glow-color:rgba(255,255,255,.85);
+  border:4px solid transparent;
+  background-image:linear-gradient(#fff,#fff),linear-gradient(90deg,#ff5ea8,#ffb347,#fff066,#6bffb8,#5ec8ff,#a26bff,#ff5ea8);
+  background-origin:border-box; background-clip:padding-box,border-box;
+  background-size:100% 100%,300% 100%;
+  animation:gradeGlow 1.6s ease-in-out infinite,rainbowShift 3s linear infinite}
 .confetti{position:absolute;top:0;width:8px;height:14px;border-radius:2px;opacity:0;
   animation:confettiFall 1.6s ease-in forwards;pointer-events:none}
 </style>
@@ -1252,15 +1260,28 @@ async function playGradeReveal(g){
       await sleep(280);
       try{current.remove();}catch(e){}
     }
-    const card=document.createElement("div");
-    card.className="gradeCard tier-"+item.tier;
-    card.innerHTML="<div class='gbadge'>"+(item.special?"✨ ":"")+esc(item.gradeName)+"</div>"+
+    const wrap=document.createElement("div");
+    wrap.className="gradeCardWrap";
+    const inner=document.createElement("div");
+    inner.className="gradeCardInner";
+    const back=document.createElement("div");
+    back.className="gradeFace back";
+    back.innerHTML="<div class='backmark'>?</div>";
+    const front=document.createElement("div");
+    front.className="gradeFace front tier-"+item.tier;
+    front.innerHTML="<div class='gbadge'>"+(item.special?"✨ ":"")+esc(item.gradeName)+"</div>"+
       "<h3>"+esc(item.name)+"</h3>"+
       "<div class='gcut'>"+num(item.total,2)+"점</div>";
-    stage.appendChild(card);
-    current=card;
+    inner.appendChild(back); inner.appendChild(front);
+    wrap.appendChild(inner);
+    stage.appendChild(wrap);
+    current=wrap;
     count.textContent=(i+1)+" / "+list.length+" · "+esc(item.gradeName);
     progressBar.style.width=Math.round((i+1)/list.length*100)+"%";
+
+    /* 뒷면을 잠깐 보여준 뒤 앞면으로 뒤집는다 */
+    await sleep(skipped ? 40 : 260);
+    inner.classList.add("flipped");
     if(item.special) spawnConfetti(ov);
     await sleep(skipped ? 60 : (DWELL_BY_TIER[item.tier]||600));
   }
