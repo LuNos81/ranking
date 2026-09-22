@@ -1239,7 +1239,6 @@ function buildRevealList(g){
   });
   return list;
 }
-const DWELL_BY_TIER={ song:960, wan:960, bak:960, bae:1040 }; /* 범급/도급/양급은 방장이 직접 넘기므로 대기시간이 필요 없음 */
 const MANUAL_TIERS=new Set(["beom","do","yang"]);
 /* 방 공용(Firebase) gradeAdvance 값이 baseline보다 커질 때까지, 또는 gradeSkipAll이 켜질 때까지 기다린다.
    방장이 '다음 카드 공개'를 누르면 gradeAdvance가 하나 올라가고, 모든 참가자의 대기가 동시에 풀린다. */
@@ -1399,18 +1398,20 @@ async function playGradeReveal(g, opts){
     count.textContent=(i+1)+" / "+list.length+" · "+esc(item.gradeName);
     progressBar.style.width=Math.round((i+1)/list.length*100)+"%";
 
-    /* 뒷면이 잠깐 나온 뒤, 앞면 공개는 방장이 눌러야 진행된다 */
-    await sleep(skipped ? 20 : 150);
-    if(!skipped){
+    /* 뒷면 단계: 범급 이상은 방장이 눌러야 앞면이 공개되고, 그 외 등급은 잠깐 뒤 자동으로 뒤집힌다 */
+    if(MANUAL_TIERS.has(item.tier) && !skipped){
       await manualGate(ov, sync, "카드 공개", "방장이 카드를 공개하면 보입니다…");
+    }else{
+      await sleep(skipped ? 40 : 520);
     }
     inner.classList.add("flipped");
     if(item.special) spawnConfetti(ov);
 
-    if(MANUAL_TIERS.has(item.tier) && !skipped){
+    /* 앞면 공개 후: 모든 등급이 방장 클릭으로만 다음 카드로 넘어간다 */
+    if(!skipped){
       await manualGate(ov, sync, "다음 카드 공개", "방장이 다음 카드를 공개하면 이어집니다…");
     }else{
-      await sleep(skipped ? 60 : (DWELL_BY_TIER[item.tier]||900));
+      await sleep(60);
     }
   }
 
