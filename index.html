@@ -122,10 +122,13 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
   overflow:hidden;margin-bottom:10px}
 .gradeProgressBar{height:100%;background:#fff;border-radius:999px;transition:width .25s ease}
 .gradeCount{color:#fff;opacity:.75;font-size:12.5px;margin-bottom:14px}
+.gradeManualWait{margin-top:20px;text-align:center}
+.gradeWaitMsg{color:#fff;opacity:.75;font-size:13px;margin:0}
+.gradeNextBtn{min-width:160px}
 
 /* 세로로 긴 전형적인 카드 모양 + 3D 뒤집기(뒷면→앞면) */
 .gradeCardWrap{width:230px;max-width:72vw;aspect-ratio:5/7;perspective:1200px;
-  animation:gradeCardIn .45s cubic-bezier(.2,.9,.3,1.25) both}
+  animation:gradeCardIn .9s cubic-bezier(.2,.9,.3,1.25) both}
 @keyframes gradeCardIn{
   0%{opacity:0;transform:translateY(20px) scale(.92);}
   100%{opacity:1;transform:translateY(0) scale(1);}
@@ -134,22 +137,33 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
   0%{opacity:1;transform:scale(1) translateY(0);}
   100%{opacity:0;transform:scale(.9) translateY(-16px);}
 }
-.gradeCardWrap.leaving{animation:gradeCardOut .3s ease forwards!important}
+.gradeCardWrap.leaving{animation:gradeCardOut .6s ease forwards!important}
 .gradeCardInner{position:relative;width:100%;height:100%;transform-style:preserve-3d;
-  transition:transform .65s cubic-bezier(.3,.15,.15,1)}
+  transition:transform 1.3s cubic-bezier(.3,.15,.15,1)}
 .gradeCardInner.flipped{transform:rotateY(180deg)}
 .gradeFace{position:absolute;inset:0;backface-visibility:hidden;border-radius:16px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
-  padding:20px 14px;box-shadow:0 10px 28px rgba(0,0,0,.4)}
+  padding:20px 14px;box-shadow:0 10px 28px rgba(0,0,0,.4);overflow-y:auto}
 .gradeFace.back{background:linear-gradient(150deg,#30333c,#1a1c22);color:#fff}
 .gradeFace.back .backmark{font-size:44px;opacity:.45}
 .gradeFace.front{background:#fff;color:#1c1e24;transform:rotateY(180deg);
   border:4px solid var(--tier-color,#ccc);animation:gradeGlow 2s ease-in-out infinite}
-.gradeFace .gbadge{display:inline-block;background:rgba(0,0,0,.08);border-radius:999px;
-  padding:3px 12px;font-size:12.5px;font-weight:700;letter-spacing:.02em;margin-bottom:10px}
+.gradeFace .gbadge{display:inline-block;border-radius:999px;
+  padding:3px 12px;font-size:13px;font-weight:800;letter-spacing:.02em;margin-bottom:10px}
+.gradeFace.front .gbadge{color:var(--tier-color,#333);background:rgba(0,0,0,.06);
+  animation:textGlow 2s ease-in-out infinite}
 .gradeFace h3{margin:0 0 6px;font-size:19px;overflow-wrap:anywhere}
 .gradeFace .gcut{font-size:15px;opacity:.85;font-weight:600}
+.gperlist{margin-top:10px;width:100%;display:flex;flex-direction:column;gap:2px;font-size:11.5px}
+.gperitem{display:flex;justify-content:space-between;gap:8px;padding:3px 2px;border-top:1px solid rgba(0,0,0,.08)}
+.gperitem:first-child{border-top:none}
+.gpn{opacity:.62;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%}
+.gpv{font-weight:700;font-variant-numeric:tabular-nums}
 @keyframes gradeShine{ 0%{background-position:-160% 0;} 100%{background-position:260% 0;} }
+@keyframes textGlow{
+  0%,100%{ text-shadow:0 0 0 transparent; }
+  50%{ text-shadow:0 0 9px var(--glow-color,rgba(0,0,0,0)),0 0 3px var(--glow-color,rgba(0,0,0,0)); }
+}
 @keyframes gradeGlow{
   0%,100%{box-shadow:0 10px 28px rgba(0,0,0,.4),0 0 0 0 rgba(255,255,255,0);}
   50%{box-shadow:0 10px 28px rgba(0,0,0,.4),0 0 26px 6px var(--glow-color,rgba(255,255,255,.5));}
@@ -178,6 +192,7 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 /* 양급: 무지개 테두리(그라데이션 보더) */
 .gradeFace.front.tier-yang{
   --glow-color:rgba(255,255,255,.85);
+  --tier-color:#ff5ea8;
   border:4px solid transparent;
   background-image:linear-gradient(#fff,#fff),linear-gradient(90deg,#ff5ea8,#ffb347,#fff066,#6bffb8,#5ec8ff,#a26bff,#ff5ea8);
   background-origin:border-box; background-clip:padding-box,border-box;
@@ -279,7 +294,7 @@ function attach(code){
     }
     const nowRevealed=!!S.room.gradesRevealed;
     if(!firstSnap && !prevRevealed && nowRevealed && S.room.phase==="results"){
-      playGradeReveal(computeGrades());
+      playGradeReveal(computeGrades(), {sync:true});
     }
     firstSnap=false;
     hostTick(); render();
@@ -476,8 +491,10 @@ function buildGrades(rows){
   };
 }
 function computeGrades(){
-  const rows=aggregate().map((r,ti)=>({ti,name:r.name,total:r.total}));
-  return buildGrades(rows);
+  const rows=aggregate().map((r,ti)=>({ti,name:r.name,total:r.total,per:r.per}));
+  const g=buildGrades(rows);
+  g.criteria=S.room.criteria;
+  return g;
 }
 /* 연출 테스트용: 완성된(전부 채점된 것으로 취급) 임의의 데이터 n개를 만들어낸다.
    난수 4개의 평균을 쓰는 방식이라 0~100 사이에 고르게 몰리는(종형에 가까운) 점수가 나온다. */
@@ -1213,16 +1230,54 @@ function buildRevealList(g){
   order.forEach(t=>{
     const grp=g.groups.find(x=>x.name===t.name);
     (grp?grp.members:[]).slice().sort((a,b)=>a.total-b.total).forEach(m=>{
-      list.push({ tier:t.tier, gradeName:t.name, name:m.name, total:m.total });
+      list.push({ tier:t.tier, gradeName:t.name, name:m.name, total:m.total, per:m.per });
     });
   });
   g.special.members.slice().sort((a,b)=>a.total-b.total).forEach(m=>{
-    list.push({ tier:"yang", gradeName:"양급", name:m.name, total:m.total, special:true });
+    list.push({ tier:"yang", gradeName:"양급", name:m.name, total:m.total, per:m.per, special:true });
   });
   return list;
 }
-const DWELL_BY_TIER={ song:480, wan:480, bak:480, bae:520, beom:600, do:800, yang:1300 };
-async function playGradeReveal(g){
+const DWELL_BY_TIER={ song:960, wan:960, bak:960, bae:1040 }; /* 범급/도급/양급은 방장이 직접 넘기므로 대기시간이 필요 없음 */
+const MANUAL_TIERS=new Set(["beom","do","yang"]);
+/* 방 공용(Firebase) gradeAdvance 값이 baseline보다 커질 때까지, 또는 gradeSkipAll이 켜질 때까지 기다린다.
+   방장이 '다음 카드 공개'를 누르면 gradeAdvance가 하나 올라가고, 모든 참가자의 대기가 동시에 풀린다. */
+function waitForFirebaseAdvance(){
+  return new Promise(resolve=>{
+    let baseline=null;
+    const path=R(Proom(S.code));
+    const unsub=onValue(path, snap=>{
+      const v=snap.val()||{};
+      if(v.gradeSkipAll){ try{unsub();}catch(e){} resolve(); return; }
+      const adv=v.gradeAdvance||0;
+      if(baseline===null){ baseline=adv; return; }
+      if(adv>baseline){ try{unsub();}catch(e){} resolve(); }
+    });
+  });
+}
+async function bumpGradeAdvance(){
+  try{
+    const snap=await get(R(Proom(S.code)+"/gradeAdvance"));
+    const cur=snap.exists()?snap.val():0;
+    await update(R(Proom(S.code)),{gradeAdvance:cur+1});
+  }catch(e){}
+}
+/* 로컬(테스트) 모드: 참가자가 나 혼자이므로 버튼만 누르면 바로 풀린다 */
+function waitForLocalAdvance(container){
+  return new Promise(resolve=>{
+    const wrapEl=document.createElement("div");
+    wrapEl.className="gradeManualWait";
+    const btn=document.createElement("button");
+    btn.className="primary gradeNextBtn";
+    btn.textContent="다음 카드 공개";
+    btn.addEventListener("click",()=>{ try{wrapEl.remove();}catch(e){} resolve(); });
+    wrapEl.appendChild(btn);
+    container.appendChild(wrapEl);
+  });
+}
+async function playGradeReveal(g, opts){
+  opts=opts||{};
+  const sync=!!opts.sync;
   const list=buildRevealList(g);
   const ov=document.createElement("div");
   ov.className="gradeOverlay";
@@ -1230,7 +1285,10 @@ async function playGradeReveal(g){
   skip.className="gradeSkip sm ghost";
   skip.textContent="넘기기";
   let skipped=false;
-  skip.addEventListener("click",()=>{ skipped=true; });
+  skip.addEventListener("click",async ()=>{
+    skipped=true;
+    if(sync && isHost()){ try{ await update(R(Proom(S.code)),{gradeSkipAll:true}); }catch(e){} }
+  });
   const title=document.createElement("div");
   title.className="gradeStage-title";
   title.innerHTML="<h2>🏆 등급 발표</h2>";
@@ -1257,7 +1315,7 @@ async function playGradeReveal(g){
     /* 이전 카드를 먼저 살짝 사라지게 한 뒤, 새 카드를 그 자리에 교체해서 넣는다(한 장씩만 보임) */
     if(current){
       current.classList.add("leaving");
-      await sleep(280);
+      await sleep(560);
       try{current.remove();}catch(e){}
     }
     const wrap=document.createElement("div");
@@ -1269,9 +1327,17 @@ async function playGradeReveal(g){
     back.innerHTML="<div class='backmark'>?</div>";
     const front=document.createElement("div");
     front.className="gradeFace front tier-"+item.tier;
+    let perHTML="";
+    if(item.per && g.criteria && g.criteria.length){
+      perHTML="<div class='gperlist'>"+g.criteria.map((c,ci)=>{
+        const p=item.per[ci];
+        const val=(p && p.pts!==null && p.pts!==undefined) ? num(p.pts,2) : "–";
+        return "<div class='gperitem'><span class='gpn'>"+esc(c.name)+"</span><span class='gpv'>"+val+"</span></div>";
+      }).join("")+"</div>";
+    }
     front.innerHTML="<div class='gbadge'>"+(item.special?"✨ ":"")+esc(item.gradeName)+"</div>"+
       "<h3>"+esc(item.name)+"</h3>"+
-      "<div class='gcut'>"+num(item.total,2)+"점</div>";
+      "<div class='gcut'>"+num(item.total,2)+"점</div>"+perHTML;
     inner.appendChild(back); inner.appendChild(front);
     wrap.appendChild(inner);
     stage.appendChild(wrap);
@@ -1280,10 +1346,32 @@ async function playGradeReveal(g){
     progressBar.style.width=Math.round((i+1)/list.length*100)+"%";
 
     /* 뒷면을 잠깐 보여준 뒤 앞면으로 뒤집는다 */
-    await sleep(skipped ? 40 : 260);
+    await sleep(skipped ? 40 : 520);
     inner.classList.add("flipped");
     if(item.special) spawnConfetti(ov);
-    await sleep(skipped ? 60 : (DWELL_BY_TIER[item.tier]||600));
+
+    if(MANUAL_TIERS.has(item.tier) && !skipped){
+      const waitEl=document.createElement("div");
+      waitEl.className="gradeManualWait";
+      if(sync){
+        if(isHost()){
+          const btn=document.createElement("button");
+          btn.className="primary gradeNextBtn";
+          btn.textContent="다음 카드 공개";
+          btn.addEventListener("click",()=>{ btn.disabled=true; btn.textContent="공개 중…"; bumpGradeAdvance(); });
+          waitEl.appendChild(btn);
+        }else{
+          waitEl.innerHTML="<p class='gradeWaitMsg'>방장이 다음 카드를 공개하면 이어집니다…</p>";
+        }
+        ov.appendChild(waitEl);
+        await waitForFirebaseAdvance();
+        try{waitEl.remove();}catch(e){}
+      }else{
+        await waitForLocalAdvance(ov);
+      }
+    }else{
+      await sleep(skipped ? 60 : (DWELL_BY_TIER[item.tier]||900));
+    }
   }
 
   const closeBtn=document.createElement("button");
@@ -1578,7 +1666,7 @@ async function handle(act,d){
     else if(act==="skiptarget"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await moveCursor(1); }
     else if(act==="next"){ await moveCursor(1); }
     else if(act==="forceresult"){ await update(R(Proom(S.code)),{phase:"results"}); }
-    else if(act==="revealgrades"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await update(R(Proom(S.code)),{gradesRevealed:true}); }
+    else if(act==="revealgrades"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await update(R(Proom(S.code)),{gradesRevealed:true, gradeAdvance:0, gradeSkipAll:false}); }
     else if(act==="testgrades"){ playGradeReveal(buildGrades(genTestRows(100))); }
     else if(act==="backscore"){ await update(R(Proom(S.code)),{phase:"scoring"}); S.draftFor=null; }
     else if(act==="detail"){ S.modal={ti:Number(d.ti)}; render(true); }
