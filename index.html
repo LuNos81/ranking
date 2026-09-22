@@ -63,9 +63,12 @@ th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white
 th{background:var(--panel2);font-size:12.5px;color:var(--muted);font-weight:700}
 tbody tr:last-child td{border-bottom:none}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{color:var(--accent)}
 .crit{display:grid;grid-template-columns:1fr 120px auto;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}
 .crit:last-child{border-bottom:none}
 .crit .nm{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.crit .dsc{font-size:12.5px;color:var(--muted);font-weight:400;margin-top:2px;overflow-wrap:anywhere}
 .crit .w{font-size:12px;color:var(--muted);font-weight:500}
 .crit.skipped .nm,.crit.skipped input{opacity:.4}
 @media (max-width:520px){.crit{grid-template-columns:1fr 96px auto;gap:8px}}
@@ -154,8 +157,9 @@ const S = {
   peerId: rid("p_"),
   code:null, memberId:null, room:null, presence:{}, chat:{},
   unsub:[], screen:"lobby",
-  draft:null, draftFor:null, skip:{},
-  pending:null, err:"", banner:"", modal:null, lastSig:""
+  draft:null, draftFor:null, skip:{}, draftVal:{},
+  pending:null, err:"", banner:"", modal:null, lastSig:"",
+  single:null, resultSort:{key:null,dir:"desc"}, resultSearch:""
 };
 
 /* ───────── boot ───────── */
@@ -167,6 +171,13 @@ try{
 }catch(e){ S.configured = false; }
 S.ready = true;
 render(true);
+APP.addEventListener("click",ev=>{
+  const b=ev.target.closest("[data-act]");
+  if(!b) return;
+  if(b.dataset.act==="closemodal"&&ev.target!==b&&ev.target.closest("[data-stop]")&&!ev.target.dataset.act) return;
+  ev.stopPropagation();
+  handle(b.dataset.act,b.dataset);
+});
 
 /* ───────── db helpers ───────── */
 const R  = p => ref(S.db, p);
@@ -180,6 +191,11 @@ function attach(code){
     if(!S.room){ S.banner="방이 사라졌습니다."; leaveLocal(); render(true); return; }
     S.room.targets = arr(S.room.targets);
     S.room.criteria = arr(S.room.criteria);
+    if(S.memberId && S.screen==="room" && !obj(S.room.members)[S.memberId]){
+      ls("sc.member."+code,null);
+      S.banner="방장에 의해 강퇴되었습니다.";
+      leaveLocal(); render(true); return;
+    }
     hostTick(); render();
   }, err=>{ S.err="연결 오류: "+err.message; render(true); }));
   /* 접속 표시 */
@@ -261,27 +277,115 @@ function refreshChat(){
    각 항목은 0~100 으로 입력받고, 항목 배점(max)에 비례해 환산됩니다.
    항목 환산점 = 평균/100 × 항목 배점
    총점 = (환산점 합 / 집계된 항목 배점 합) × 만점
-   → 아무도 점수를 주지 않은(전원 스킵) 항목은 배점 합에서도 빠집니다. */
-function aggregate(){
-  const crits=S.room.criteria, targets=S.room.targets, ids=allScorerIds();
-  const full = Number(S.room.maxTotal)||100;
+   → 아무도 점수를 주지 않은(전원 스킵) 항목은 배점 합에서도 빠집니다.
+   trim=true면 항목마다 최고점 1개·최저점 1개를 뺀 나머지로 평균 (채점자가 3명 이상인 항목에만 적용).
+   (실시간 방/싱글 모드 취합 양쪽에서 공용으로 사용) */
+function aggregateFrom(targets, criteria, maxTotal, scoresObj, ids, trim){
+  const full = Number(maxTotal)||100;
   return targets.map((tname,ti)=>{
-    const per = crits.map((c,ci)=>{
-      let sum=0,n=0;
+    const per = criteria.map((c,ci)=>{
+      const vals=[];
       ids.forEach(mid=>{
-        if(!isDone(mid,ti)) return;
-        const row=obj(obj(scoresOf()[mid].v)[ti]);
+        const sc=scoresObj[mid];
+        if(!sc || !obj(sc.done)[ti]) return;
+        const row=obj(obj(sc.v)[ti]);
         const v=row[ci];
-        if(typeof v==="number" && isFinite(v)){ sum+=v; n++; }
+        if(typeof v==="number" && isFinite(v)) vals.push(v);
       });
-      if(!n) return {avg:null,pts:null,n:0};
-      const avg=sum/n;
-      return { avg:avg, pts: avg/100*(Number(c.max)||0), n:n };
+      if(!vals.length) return {avg:null,pts:null,n:0};
+      let used=vals;
+      if(trim && vals.length>=3){
+        const sorted=vals.slice().sort((a,b)=>a-b);
+        used=sorted.slice(1,-1);
+      }
+      const avg=used.reduce((a,b)=>a+b,0)/used.length;
+      return { avg:avg, pts: avg/100*(Number(c.max)||0), n:vals.length };
     });
     let earned=0, maxSum=0;
-    per.forEach((p,ci)=>{ if(p.pts!==null){ earned+=p.pts; maxSum+=Number(crits[ci].max)||0; } });
+    per.forEach((p,ci)=>{ if(p.pts!==null){ earned+=p.pts; maxSum+=Number(criteria[ci].max)||0; } });
     return { name:tname, per, total: maxSum>0 ? earned/maxSum*full : null };
   });
+}
+function aggregate(){
+  return aggregateFrom(S.room.targets, S.room.criteria, S.room.maxTotal, scoresOf(), allScorerIds(), !!S.room.trim);
+}
+
+/* 임의의 targets/criteria/scoresObj/ids에 대해, 대상 ti에서 각 채점자가 매긴 개인 총점(만점 기준 환산) 목록을 반환.
+   스킵한 항목은 그 채점자의 계산에서 제외하고 나머지 항목만으로 환산한다.
+   (실시간 방/싱글 모드 취합 양쪽에서 공용으로 사용) */
+function judgeTotalsFrom(criteria, maxTotal, scoresObj, ids, ti){
+  const full=Number(maxTotal)||100;
+  const totals=[];
+  ids.forEach(mid=>{
+    const sc=scoresObj[mid];
+    if(!sc || !obj(sc.done)[ti]) return;
+    const row=obj(obj(sc.v)[ti]);
+    let earned=0, maxSum=0;
+    criteria.forEach((c,ci)=>{
+      const v=row[ci];
+      if(typeof v==="number" && isFinite(v)){ earned+=v/100*(Number(c.max)||0); maxSum+=Number(c.max)||0; }
+    });
+    if(maxSum>0) totals.push(earned/maxSum*full);
+  });
+  return totals;
+}
+function judgeTotalsForTarget(ti){
+  return judgeTotalsFrom(S.room.criteria, S.room.maxTotal, scoresOf(), allScorerIds(), ti);
+}
+/* 모집단 표준편차. 값이 2개 미만이면 의미가 없으므로 null. */
+function stddev(arr){
+  if(!arr || arr.length<2) return null;
+  const n=arr.length, mean=arr.reduce((a,b)=>a+b,0)/n;
+  const variance=arr.reduce((a,b)=>a+(b-mean)*(b-mean),0)/n;
+  return Math.sqrt(variance);
+}
+/* 최고값 1개, 최저값 1개를 뺀 나머지 (3개 미만이면 그대로). */
+function trimExtremes(arr){
+  if(!arr || arr.length<3) return (arr||[]).slice();
+  const sorted=arr.slice().sort((a,b)=>a-b);
+  return sorted.slice(1,-1);
+}
+
+/* ───────── 등급 발표 ─────────
+   총점 기준 내림차순으로 줄을 세운 뒤, 상위 5개는 '양급'(규격 외)으로 따로 빼고,
+   나머지 인원(M명)을 대상으로 등급 경계 비율(%)에 M을 곱해 버림한 '순위 컷'으로 6등급을 나눈다.
+   예: 도급 컷 = floor(M*6/100) → 순위 1~그컷 까지가 도급.
+   경계 비율이 누적(0→6→21→50→79→94→100)이라 항상 1..M 전체를 빈틈없이 덮는다(안전망 코드는 혹시 몰라 추가). */
+function computeGrades(){
+  const rows=aggregate();
+  const all=rows.map((r,ti)=>({ti,name:r.name,total:r.total}));
+  const valid=all.filter(r=>r.total!==null).sort((a,b)=>b.total-a.total);
+  const invalidCount=all.length-valid.length;
+  const N=valid.length;
+  const specialCount=Math.min(5,N);
+  const special=valid.slice(0,specialCount);
+  const rest=valid.slice(specialCount);
+  const M=rest.length;
+  const tiers=[
+    {name:"도급", from:0, to:6},
+    {name:"범급", from:6, to:21},
+    {name:"배급", from:21, to:50},
+    {name:"박급", from:50, to:79},
+    {name:"완급", from:79, to:94},
+    {name:"송급", from:94, to:100}
+  ];
+  let prevCut=0;
+  const groups=tiers.map(t=>{
+    const cut=Math.floor(M*t.to/100);
+    const members=rest.slice(prevCut, Math.max(prevCut,cut));
+    prevCut=cut;
+    return { name:t.name, from:t.from, to:t.to, members };
+  });
+  /* 안전망: 이론상 발생하지 않지만, 혹시 누락된 순위가 있으면 가장 높은 등급(도급)에 편입 */
+  const assigned=new Set();
+  groups.forEach(g=>g.members.forEach(m=>assigned.add(m.ti)));
+  rest.forEach(m=>{ if(!assigned.has(m.ti)) groups[0].members.push(m); });
+  const cutOf=arr=>arr.length?Math.min(...arr.map(m=>m.total)):null;
+  return {
+    invalidCount, N, M,
+    special:{ name:"양급", members:special, cut:cutOf(special) },
+    groups:groups.map(g=>({ name:g.name, from:g.from, to:g.to, members:g.members, cut:cutOf(g.members) }))
+  };
 }
 
 /* ───────── 방장 자동 진행 ───────── */
@@ -313,7 +417,7 @@ function parseTargets(text){
   if(lines.length===1 && lines[0].indexOf(",")>-1) lines=lines[0].split(",").map(s=>s.trim()).filter(Boolean);
   return lines.map(s=>s.replace(/^[-*·]\s*/,""));
 }
-/* 첫 줄 = 만점(예: "200" 또는 "만점 200"), 그 다음 줄부터 = 항목 배점 */
+/* 첫 줄 = 만점(예: "200" 또는 "만점 200"), 그 다음 줄부터 = 항목 배점 (뒤에 설명을 더 적으면 선택적으로 함께 저장됨) */
 function parseCriteria(text){
   const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   if(lines.length<2) throw new Error("첫 줄에 만점, 그 다음 줄부터 항목을 적어주세요.");
@@ -322,24 +426,67 @@ function parseCriteria(text){
   const maxTotal=parseFloat(head[1]);
   const criteria=lines.slice(1).map(line=>{
     line=line.replace(/^[-*·]\s*/,"");
-    const m=line.match(/^(.*\S)\s*[\s,:\t=|/]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:점)?$/);
+    const m=line.match(/^(.*\S)\s*[\s,:\t=|/]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:점)?(?:\s*[\s,:\t=|/]\s*(.+))?$/);
     if(!m) throw new Error("‘"+line+"’ 줄에서 배점을 읽지 못했습니다. 예: 창의성 50");
-    return { name:m[1].trim().replace(/[,:=|/]$/,"").trim(), max:parseFloat(m[2]) };
+    return { name:m[1].trim().replace(/[,:=|/]$/,"").trim(), max:parseFloat(m[2]), desc:(m[3]||"").trim() };
   }).filter(c=>c.name);
   if(!criteria.length) throw new Error("항목이 없습니다.");
   return { maxTotal, criteria };
+}
+/* 대상 + 항목을 한 파일에 담은 통합 파일 파싱.
+   '[대상]' 구획과 '[항목]' 구획(대괄호는 생략 가능)이 모두 있어야 하며, 순서는 상관없음. */
+function parseCombined(text){
+  const lines=text.split(/\r?\n/).map(s=>s.trim());
+  const isTargetHead=l=>/^\[?\s*대상\s*\]?$/.test(l);
+  const isCritHead=l=>/^\[?\s*항목\s*\]?$/.test(l);
+  const ti=lines.findIndex(isTargetHead), ci=lines.findIndex(isCritHead);
+  if(ti<0||ci<0) throw new Error("파일에 '[대상]' 구획과 '[항목]' 구획이 모두 있어야 합니다.");
+  let targetLines, criteriaLines;
+  if(ti<ci){ targetLines=lines.slice(ti+1,ci); criteriaLines=lines.slice(ci+1); }
+  else{ criteriaLines=lines.slice(ci+1,ti); targetLines=lines.slice(ti+1); }
+  targetLines=targetLines.filter(Boolean); criteriaLines=criteriaLines.filter(Boolean);
+  if(!targetLines.length) throw new Error("[대상] 구획에 대상이 없습니다.");
+  const targets=parseTargets(targetLines.join("\n"));
+  const parsed=parseCriteria(criteriaLines.join("\n"));
+  return { targets, criteria:parsed.criteria, maxTotal:parsed.maxTotal };
 }
 const readFile = f => new Promise((res,rej)=>{
   const r=new FileReader();
   r.onload=()=>res(String(r.result||"")); r.onerror=()=>rej(new Error("파일을 읽지 못했습니다."));
   r.readAsText(f,"utf-8");
 });
+function shuffleArr(a){
+  a=a.slice();
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+
+/* ───────── 점수 입력칸 이스터에그 ─────────
+   'pi'/'π' → 원주율, 'e' → 자연상수, '3pi'/'2e'처럼 앞에 숫자를 붙이면 배수.
+   'shangus'(영타) 또는 그 한글 오타('노무현') → 52.3.
+   입력하는 즉시(매 keystroke) 변환을 시도하며, 매치되면 입력칸 표시도 바로 기호로 바뀐다. */
+function magicParse(raw){
+  const t=(raw||"").trim();
+  if(!t) return null;
+  if(t.toLowerCase()==="shangus" || t==="노무현") return { display:"52.3", value:52.3 };
+  let m=t.match(/^(\d*\.?\d*)\s*(pi|π)$/i);
+  if(m){
+    const coef=m[1]===""?1:parseFloat(m[1]);
+    if(isFinite(coef)) return { display:(m[1]||"")+"π", value:coef*Math.PI };
+  }
+  m=t.match(/^(\d*\.?\d*)\s*e$/i);
+  if(m && (m[1]!==""||t.toLowerCase()==="e")){
+    const coef=m[1]===""?1:parseFloat(m[1]);
+    if(isFinite(coef)) return { display:(m[1]||"")+"e", value:coef*Math.E };
+  }
+  return null;
+}
 
 /* ───────── 저장 / 이어하기 ───────── */
 function buildSession(){
   return {
     app:"realtime-scoring", version:2, savedAt:new Date().toISOString(),
-    mode:S.room.mode, maxTotal:S.room.maxTotal,
+    mode:S.room.mode, order:S.room.order||"seq", trim:!!S.room.trim, maxTotal:S.room.maxTotal,
     targets:S.room.targets, criteria:S.room.criteria,
     cursor:S.room.cursor||0, maxReached:S.room.maxReached||0,
     members: allScorerIds().map(id=>({ id, name:nameOf(id), cursor:(members()[id]&&members()[id].cursor)||0 })),
@@ -366,7 +513,8 @@ async function createRoom(seed){
   const mid=rid("m_");
   const room={
     code, hostMemberId:mid, createdAt:Date.now(),
-    phase:"setup", mode:(seed&&seed.mode)||"sync",
+    phase:"setup", mode:(seed&&seed.mode)||"sync", order:(seed&&seed.order)||"seq", trim:!!(seed&&seed.trim),
+    gradesRevealed:false,
     maxTotal:(seed&&seed.maxTotal)||100,
     targets:(seed&&seed.targets)||[], criteria:(seed&&seed.criteria)||[],
     cursor:(seed&&seed.cursor)||0, maxReached:(seed&&seed.maxReached)||0,
@@ -396,11 +544,17 @@ async function enterRoom(code){
   if(saved && ms[saved] && ms[saved].ownerId===S.viewerId){
     S.code=code; S.memberId=saved; S.screen="room"; attach(code); return render(true);
   }
+  if(data.phase && data.phase!=="setup"){
+    S.err="투표가 진행 중이어서 새로 참여할 수 없습니다. 방장에게 문의하세요.";
+    return render(true);
+  }
   S.pending={ code, slots:Object.keys(ms).map(id=>Object.assign({id},ms[id])) };
   S.screen="join"; S.err=""; render(true);
 }
 
 async function claimSlot(code,mid){
+  const phaseSnap=await get(R(Proom(code)+"/phase"));
+  if(phaseSnap.exists() && phaseSnap.val()!=="setup"){ S.err="투표가 진행 중이어서 참여할 수 없습니다."; return render(true); }
   const mref=R(Proom(code)+"/members/"+mid);
   const res=await runTransaction(mref,cur=>{
     if(!cur) return;   // 자리 없음 → 중단
@@ -408,12 +562,14 @@ async function claimSlot(code,mid){
     cur.ownerId=S.viewerId; cur.name=S.name||cur.name||"이름없음";
     return cur;
   });
-  if(!res.committed){ S.err="이미 사용 중인 자리입니다."; return render(true); }
+  if(!res.committed){ S.err="이미 사용 중인 자리이거나 더 이상 존재하지 않습니다."; return render(true); }
   S.code=code; S.memberId=mid; ls("sc.member."+code,mid); ls("sc.lastcode",code);
   S.pending=null; S.screen="room"; attach(code); render(true);
 }
 
 async function joinAsNew(code){
+  const phaseSnap=await get(R(Proom(code)+"/phase"));
+  if(phaseSnap.exists() && phaseSnap.val()!=="setup"){ S.err="투표가 진행 중이어서 참여할 수 없습니다."; return render(true); }
   const mid=rid("m_");
   const res=await runTransaction(R(Proom(code)+"/members"),cur=>{
     const m=cur||{};
@@ -425,6 +581,13 @@ async function joinAsNew(code){
   if(!res.committed){ S.err="방이 가득 찼습니다. (동시 접속 최대 7명)"; return render(true); }
   S.code=code; S.memberId=mid; ls("sc.member."+code,mid); ls("sc.lastcode",code);
   S.pending=null; S.screen="room"; attach(code); render(true);
+}
+
+async function kickMember(mid){
+  if(!isHost() || !S.room || mid===S.room.hostMemberId) return;
+  try{
+    await update(R(Proom(S.code)),{ ["members/"+mid]:null, ["scores/"+mid]:null });
+  }catch(e){ S.err="강퇴에 실패했습니다."; render(true); }
 }
 
 async function leaveRoom(){
@@ -440,7 +603,7 @@ async function leaveRoom(){
 function ensureDraft(ti){
   if(S.draftFor===ti&&S.draft) return;
   const row=obj(obj(myScore().v)[ti]);
-  S.draft={}; S.skip={};
+  S.draft={}; S.skip={}; S.draftVal={};
   S.room.criteria.forEach((c,ci)=>{
     const v=row[ci];
     if(v==="skip"){ S.skip[ci]=true; S.draft[ci]=""; }
@@ -455,7 +618,7 @@ async function submitTarget(){
     if(S.skip[ci]){ vals[ci]="skip"; continue; }
     const raw=(S.draft[ci]||"").trim();
     if(raw===""){ S.err="‘"+crits[ci].name+"’ 항목의 점수를 입력하거나 스킵하세요."; return render(true); }
-    const v=Number(raw);
+    const v=(S.draftVal&&S.draftVal[ci]!==undefined)?S.draftVal[ci]:Number(raw);
     if(!isFinite(v)||v<0||v>100){ S.err="‘"+crits[ci].name+"’: 0 이상 100 이하의 실수만 가능합니다."; return render(true); }
     vals[ci]=v;
   }
@@ -480,6 +643,69 @@ async function moveCursor(delta){
   S.draftFor=null; S.err=""; render(true);
 }
 
+/* ───────── 싱글 모드 (오프라인: 실시간 방 없이 혼자 채점 → 결과 파일 취합) ─────────
+   1) 개인 채점: 대상/항목 txt를 불러와 혼자 채점하고 결과를 json 파일로 내보냄
+   2) 결과 취합: 여러 명의 결과 파일을 한 번에 불러와 자동으로 합산 */
+function singleFirstUndone(){
+  const T=S.single.targets.length;
+  for(let i=0;i<T;i++) if(!S.single.done[i]) return i;
+  return 0;
+}
+function singleEnsureDraft(){
+  const ti=S.single.cursor;
+  if(S.single.draftFor===ti) return;
+  const row=obj(S.single.v[ti]);
+  S.single.draft={}; S.single.skip={}; S.single.draftVal={};
+  S.single.criteria.forEach((c,ci)=>{
+    const v=row[ci];
+    if(v==="skip"){ S.single.skip[ci]=true; S.single.draft[ci]=""; }
+    else if(typeof v==="number") S.single.draft[ci]=String(v);
+    else S.single.draft[ci]="";
+  });
+  S.single.draftFor=ti;
+}
+function singleSubmit(){
+  const ti=S.single.cursor, crits=S.single.criteria, vals={};
+  for(let ci=0;ci<crits.length;ci++){
+    if(S.single.skip[ci]){ vals[ci]="skip"; continue; }
+    const raw=(S.single.draft[ci]||"").trim();
+    if(raw===""){ S.err="‘"+crits[ci].name+"’ 항목의 점수를 입력하거나 스킵하세요."; render(true); return; }
+    const v=(S.single.draftVal&&S.single.draftVal[ci]!==undefined)?S.single.draftVal[ci]:Number(raw);
+    if(!isFinite(v)||v<0||v>100){ S.err="‘"+crits[ci].name+"’: 0 이상 100 이하의 실수만 가능합니다."; render(true); return; }
+    vals[ci]=v;
+  }
+  S.err="";
+  S.single.v[ti]=vals; S.single.done[ti]=true;
+  const T=S.single.targets.length;
+  if(ti+1<T){ S.single.cursor=ti+1; S.single.draftFor=null; }
+  else S.banner="모든 대상의 채점을 완료했습니다. 결과 파일을 내보내 취합 담당자에게 전달하세요.";
+  render(true);
+}
+function singleMove(delta){
+  const T=S.single.targets.length;
+  S.single.cursor=Math.max(0,Math.min(T-1,S.single.cursor+delta));
+  S.single.draftFor=null; S.err=""; render(true);
+}
+function buildSingleExport(){
+  return {
+    app:"realtime-scoring-single", version:1, savedAt:new Date().toISOString(),
+    name:S.name||"이름없음", maxTotal:S.single.maxTotal,
+    targets:S.single.targets, criteria:S.single.criteria,
+    v:S.single.v, done:S.single.done
+  };
+}
+function singleCombined(){
+  const list=S.single.collected;
+  if(!list||!list.length) return null;
+  const canon=list[0];
+  const scoresObj={}, ids=[];
+  list.forEach(u=>{ scoresObj[u.id]={v:u.v,done:u.done}; ids.push(u.id); });
+  const rows=aggregateFrom(canon.targets, canon.criteria, canon.maxTotal||100, scoresObj, ids, false)
+    .map((r,ti)=>({ ...r, std: stddev(judgeTotalsFrom(canon.criteria, canon.maxTotal||100, scoresObj, ids, ti)) }));
+  const mismatched=list.filter(u=>u.targets.length!==canon.targets.length||u.criteria.length!==canon.criteria.length);
+  return { targets:canon.targets, criteria:canon.criteria, maxTotal:canon.maxTotal||100, rows, mismatched };
+}
+
 /* ───────── 렌더 ───────── */
 function onlineIds(){
   const set=new Set();
@@ -497,7 +723,7 @@ function statusListHTML(){
   }).join("")+'</div>';
 }
 function refreshLive(){
-  const b=$("#liveArea"); if(b) b.innerHTML=liveHTML();
+  const b=$("#liveArea"); if(b) b.innerHTML=(S.room&&S.room.phase==="setup")?participantsHTML():liveHTML();
   const s=$("#statusArea"); if(s) s.innerHTML=statusListHTML();
 }
 
@@ -507,12 +733,15 @@ function render(force){
   let html="";
   if(S.screen==="lobby") html=viewLobby();
   else if(S.screen==="join") html=viewJoin();
+  else if(S.screen==="singlesetup") html=viewSingleSetup();
+  else if(S.screen==="singlescore") html=viewSingleScore();
+  else if(S.screen==="singlecollect") html=viewSingleCollect();
   else if(!S.room) html='<div class="card muted">방 정보를 불러오는 중…</div>';
   else if(S.room.phase==="setup") html=viewSetup();
   else if(S.room.phase==="scoring") html=viewScoring();
   else html=viewResults();
 
-  const sig=S.screen+"|"+(S.room?S.room.phase+"|"+S.room.mode+"|"+myCursor()+"|"+S.room.targets.length:"")+"|"+S.err+"|"+S.banner+"|"+(S.modal?"m":"");
+  const sig=S.screen+"|"+(S.room?S.room.phase+"|"+S.room.mode+"|"+S.room.order+"|"+(!!S.room.trim)+"|"+(!!S.room.gradesRevealed)+"|"+myCursor()+"|"+S.room.targets.length+"|"+S.room.criteria.length+"|"+S.room.maxTotal:"")+"|"+S.err+"|"+S.banner+"|"+(S.modal?"m":"");
   if(!force&&sig===S.lastSig&&S.room&&S.screen==="room"){ refreshLive(); return; }
   S.lastSig=sig;
   APP.innerHTML=(S.modal?modalHTML():"")+html;
@@ -543,11 +772,22 @@ function viewLobby(){
   '<div style="margin-top:18px"><h3>방 참여</h3><div class="row">'+
     '<input type="text" id="joincode" inputmode="numeric" maxlength="4" placeholder="4자리 코드" style="max-width:160px" value="'+esc(ls("sc.lastcode")||"")+'">'+
     '<button data-act="join">입장</button></div></div></div>'+
+  '<div class="card"><h2>싱글 모드 (오프라인)</h2>'+
+  '<p class="small muted">실시간 방 없이 혼자 채점할 수 있습니다. 여러 명이 각자 이 모드로 채점해 결과 파일을 내보낸 뒤, 한 사람이 그 파일들을 한꺼번에 불러오면 자동으로 합산된 결과를 볼 수 있습니다.</p>'+
+  '<div class="row">'+
+    '<button data-act="singlestart">개인 채점 시작</button>'+
+    '<button data-act="singlecollect">결과 파일 모아서 계산</button>'+
+  '</div></div>'+
   '<div class="card small muted"><h3>txt 파일 형식</h3><div class="grid2">'+
     '<div><div class="tiny">① 대상 목록 (한 줄에 하나)</div><pre class="fmt">1번 참가자\n2번 참가자\n3번 참가자</pre></div>'+
-    '<div><div class="tiny">② 만점 + 항목별 배점</div><pre class="fmt">200\n창의성 50\n완성도 25\n전달력 125</pre></div>'+
+    '<div><div class="tiny">② 만점 + 항목별 배점(+설명)</div><pre class="fmt">200\n창의성 50 얼마나 새로운 아이디어인지\n완성도 25\n전달력 125 발표 태도와 전달력</pre></div>'+
   '</div><p class="tiny" style="margin-top:8px">첫 줄이 만점이고, 그 아래 각 항목이 몇 점을 담당하는지 적습니다. '+
-  '점수는 항목마다 0~100으로 입력하며, 배점에 비례해 환산됩니다.</p></div>';
+  '항목명과 배점 뒤에 설명을 추가로 적으면(선택 사항) 채점 화면에 항목 아래 함께 표시됩니다. '+
+  '점수는 항목마다 0~100으로 입력하며, 배점에 비례해 환산됩니다.</p>'+
+  '<div style="margin-top:14px"><div class="tiny">③ 통합 파일 (대상 + 항목을 한 파일에)</div>'+
+  '<pre class="fmt">[대상]\n1번 참가자\n2번 참가자\n3번 참가자\n\n[항목]\n200\n창의성 50 얼마나 새로운 아이디어인지\n완성도 25\n전달력 125 발표 태도와 전달력</pre>'+
+  '<p class="tiny" style="margin-top:6px">‘[대상]’ 구획과 ‘[항목]’ 구획을 한 파일에 나눠 적으면 됩니다(대괄호는 생략 가능, 두 구획의 순서는 바뀌어도 됨). '+
+  '‘[항목]’ 구획의 첫 줄은 만점, 그 아래는 ②와 같은 형식의 항목·배점(+설명)입니다.</p></div></div>';
 }
 
 function viewJoin(){
@@ -563,6 +803,103 @@ function viewJoin(){
   }
   h+='<div class="row" style="margin-top:16px"><button class="primary" data-act="joinnew"'+(active>=7?" disabled":"")+'>새 멤버로 참여</button>'+
      '<button class="ghost" data-act="home">돌아가기</button></div></div>';
+  return h;
+}
+
+function viewSingleSetup(){
+  const s=S.single;
+  let h=bannerHTML()+errHTML();
+  h+='<div class="card"><h2>싱글 모드 · 개인 채점 준비</h2><h3>내 이름</h3>'+
+     '<input type="text" id="nick" maxlength="20" placeholder="예: 김철수" value="'+esc(S.name)+'">'+
+     '<div class="row" style="margin-top:14px">'+
+       '<label class="file">대상 목록 txt<input type="file" id="fSingleTargets" accept=".txt"></label>'+
+       '<label class="file">만점·항목 배점 txt<input type="file" id="fSingleCriteria" accept=".txt"></label>'+
+       '<label class="file">통합 파일(대상+항목) txt<input type="file" id="fSingleCombined" accept=".txt"></label></div>'+
+     '<div class="row" style="margin-top:10px"><label class="file">이전 개인 결과 불러와 이어하기<input type="file" id="fSingleResume" accept=".json,.txt"></label></div>'+
+     '<div class="grid2" style="margin-top:12px">'+
+       '<div><h3>대상 ('+s.targets.length+')</h3>'+(s.targets.length?'<div class="small">'+s.targets.map(esc).join(" · ")+'</div>':'<div class="small muted">아직 없음</div>')+'</div>'+
+       '<div><h3>항목 ('+s.criteria.length+') · 만점 '+esc(s.maxTotal)+'점</h3>'+
+         (s.criteria.length?'<div class="small">'+s.criteria.map(c=>'<span'+(c.desc?' title="'+esc(c.desc)+'"':"")+'>'+esc(c.name)+' <span class="muted">'+c.max+'점</span></span>').join(" · ")+'</div>':'<div class="small muted">아직 없음</div>')+
+       '</div></div>'+
+     '<div class="row" style="margin-top:14px"><button class="primary" data-act="singlego">채점 시작</button>'+
+     '<button class="ghost" data-act="singlehome">돌아가기</button></div></div>';
+  return h;
+}
+
+function viewSingleScore(){
+  singleEnsureDraft();
+  const s=S.single, T=s.targets.length, ti=s.cursor, crits=s.criteria;
+  const submitted=!!s.done[ti];
+  const doneCount=Object.keys(s.done).filter(k=>s.done[k]).length;
+  let h=bannerHTML()+errHTML();
+
+  h+='<div class="card"><div class="small muted">싱글 모드 · 대상 '+(ti+1)+' / '+T+' · 만점 '+esc(s.maxTotal)+'점 · 완료 '+doneCount+'/'+T+'</div>'+
+     '<h2 style="font-size:22px;margin:6px 0 0">'+esc(s.targets[ti])+'</h2>'+
+     '<div class="bar"><i style="width:'+Math.round((ti+1)/T*100)+'%"></i></div></div>';
+
+  h+='<div class="card">';
+  crits.forEach((c,ci)=>{
+    const sk=!!s.skip[ci];
+    h+='<div class="crit'+(sk?" skipped":"")+'"><div class="nm">'+esc(c.name)+
+       (c.desc?'<div class="dsc">'+esc(c.desc)+'</div>':"")+'<div class="w">배점 '+c.max+'점</div></div>'+
+       '<input type="text" inputmode="decimal" data-ci="'+ci+'" data-scope="single" class="scoreInput" placeholder="0~100" value="'+esc(s.draft[ci]||"")+'"'+(sk?" disabled":"")+'>'+
+       '<button class="sm '+(sk?"primary":"ghost")+'" data-act="singleskip" data-ci="'+ci+'">'+(sk?"스킵됨":"스킵")+'</button></div>';
+  });
+  h+='<div class="row" style="margin-top:14px"><button class="primary" data-act="singlesubmit">'+(submitted?"다시 제출":"제출")+'</button>'+
+     '<button class="ghost sm" data-act="singleskipall">전체 스킵</button>'+(submitted?'<span class="chip done">완료</span>':"")+'</div>'+
+     '<p class="tiny muted" style="margin-top:10px">0~100으로 입력하면 항목 배점에 비례해 환산됩니다. 스킵한 항목은 평균 계산에서 제외됩니다.</p></div>';
+
+  h+='<div class="card"><div class="row">'+
+     '<button data-act="singleprev"'+(ti>0?"":" disabled")+'>← 이전 대상</button>'+
+     '<button class="primary" data-act="singlenext"'+(ti<T-1?"":" disabled")+'>다음 대상 →</button></div></div>';
+
+  h+='<div class="card"><h3>결과 내보내기</h3><div class="row">'+
+     '<button class="sm primary" data-act="singleexport">결과 파일 내보내기 (json)</button>'+
+     '<button class="sm ghost" data-act="singlehome">돌아가기</button></div>'+
+     '<p class="tiny muted" style="margin-top:8px">'+(doneCount>=T
+       ?"모든 대상 채점을 완료했습니다. 결과 파일을 내보내 취합 담당자에게 전달하세요."
+       :"언제든 지금까지의 진행 상황을 파일로 내보내고, 나중에 ‘이전 개인 결과 불러와 이어하기’로 이어서 채점할 수 있습니다.")+'</p></div>';
+  return h;
+}
+
+function viewSingleCollect(){
+  const s=S.single;
+  let h=bannerHTML()+errHTML();
+  h+='<div class="card"><h2>싱글 모드 · 결과 취합</h2>'+
+     '<p class="small muted">각자 개인 채점 후 내보낸 결과 파일(json)을 한 번에 여러 개 선택해 불러오면 자동으로 합산됩니다. 여러 번에 나눠서 추가로 불러올 수도 있습니다.</p>'+
+     '<div class="row"><label class="file">결과 파일 여러 개 선택<input type="file" id="fSingleCollect" accept=".json,.txt" multiple></label>'+
+     '<button class="sm ghost" data-act="singlereset"'+(s.collected.length?"":" disabled")+'>전체 초기화</button>'+
+     '<button class="ghost" data-act="singlehome">돌아가기</button></div>';
+  if(s.collected.length){
+    h+='<div class="statuslist" style="margin-top:12px">'+s.collected.map((u,idx)=>{
+      const dc=Object.keys(u.done||{}).filter(k=>u.done[k]).length;
+      return '<div class="statusrow"><span>'+esc(u.name)+' <span class="tiny muted">('+dc+'/'+u.targets.length+' 완료)</span></span>'+
+        '<button class="sm ghost" data-act="singleremove" data-idx="'+idx+'">제거</button></div>';
+    }).join("")+'</div>';
+  }
+  h+='</div>';
+
+  const combo=singleCombined();
+  if(combo){
+    if(combo.mismatched.length)
+      h+='<div class="banner warn">'+combo.mismatched.map(u=>esc(u.name)).join(", ")+'의 대상/항목 개수가 첫 번째 파일과 달라, 순서를 기준으로 취합되었습니다. 결과가 부정확할 수 있으니 대상·항목이 같은 파일들인지 확인해 주세요.</div>';
+    h+='<div class="card"><h2>취합 결과 <span class="small muted">(만점 '+esc(combo.maxTotal)+'점 · '+s.collected.length+'명 취합)</span></h2>'+
+       '<p class="small muted">표준편차는 취합된 각 개인 결과 파일의 대상별 총점(만점 기준 환산) 간의 편차입니다.</p></div>';
+    h+='<div class="tablewrap"><table><thead><tr><th>대상</th>'+
+       combo.criteria.map(c=>'<th class="num"'+(c.desc?' title="'+esc(c.desc)+'"':"")+'>'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
+       '<th class="num">총점<div class="tiny muted">/'+esc(combo.maxTotal)+'점</div></th>'+
+       '<th class="num">표준편차</th></tr></thead><tbody>';
+    combo.rows.forEach(r=>{
+      h+='<tr><td><b>'+esc(r.name)+'</b></td>'+
+         r.per.map(p=>'<td class="num">'+(p.pts===null?'<span class="muted">–</span>':num(p.pts,2))+'</td>').join("")+
+         '<td class="num"><b>'+(r.total===null?"–":num(r.total,2))+'</b></td>'+
+         '<td class="num">'+(r.std===null?'<span class="muted">–</span>':num(r.std,2))+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+    h+='<div class="card" style="margin-top:14px"><h3>결과 다운로드</h3><div class="row">'+
+       '<button class="primary sm" data-act="singledl1">총점만 (txt)</button>'+
+       '<button class="primary sm" data-act="singledl2">항목별 + 총점 (txt)</button></div></div>';
+  }
   return h;
 }
 
@@ -583,26 +920,46 @@ function liveHTML(){
   return h+'</div>';
 }
 
+/* 로비(setup) 전용: 방장이 멤버를 강퇴할 수 있는 참가자 목록 */
+function participantsHTML(){
+  if(!S.room) return "";
+  const on=onlineIds(), host=isHost(), R0=S.room;
+  const list=memberList().filter(m=>m.ownerId||scoresOf()[m.id]);
+  if(!list.length) return '<div class="small muted">아직 참가자가 없습니다.</div>';
+  return '<div class="statuslist">'+list.map(m=>{
+    const isHostM=m.id===R0.hostMemberId;
+    let label=esc(m.name||"이름없음")+(isHostM?" 👑":"")+(m.id===S.memberId?" (나)":"")+(!m.ownerId?" (미접속)":"");
+    const kickBtn=(host&&!isHostM)?'<button class="sm ghost" data-act="kick" data-mid="'+esc(m.id)+'">강퇴</button>':"";
+    return '<div class="statusrow"><span class="row tight" style="flex-wrap:nowrap"><i class="dot'+(on.has(m.id)?" on":"")+'"></i>'+label+'</span>'+kickBtn+'</div>';
+  }).join("")+'</div>';
+}
+
 function viewSetup(){
   const R0=S.room, host=isHost(), crits=R0.criteria;
   const sum=crits.reduce((a,c)=>a+(Number(c.max)||0),0);
   let h=bannerHTML()+errHTML();
 
-  /* 왼쪽: 방 코드 + 참가자 + 채팅 */
+  /* 왼쪽: 방 코드 + 참가자(강퇴) + 채팅 */
   let left='<div class="card"><h2 style="margin:0">방 코드</h2><div class="code">'+esc(R0.code)+'</div>'+
-     '<p class="small muted">이 코드를 공유해 최대 7명까지 입장할 수 있습니다.</p>'+
-     '<div id="liveArea">'+liveHTML()+'</div>'+
+     '<p class="small muted">이 코드를 공유해 최대 7명까지 입장할 수 있습니다.'+(host?' 투표가 시작되면 새로운 멤버는 입장할 수 없습니다.':"")+'</p>'+
+     '<div id="liveArea">'+participantsHTML()+'</div>'+
      '<div class="row" style="margin-top:12px"><button class="sm ghost" data-act="leave">방 나가기</button></div></div>';
   left+='<div class="card">'+chatPanelHTML()+'</div>';
 
   /* 오른쪽: 파일 불러오기 + 모드 + 시작 */
   let right='<div class="card"><h2>1. 파일 불러오기</h2>';
-  if(host) right+='<div class="row"><label class="file">대상 목록 txt<input type="file" id="fTargets" accept=".txt"></label>'+
-              '<label class="file">만점·항목 배점 txt<input type="file" id="fCrits" accept=".txt"></label></div>';
+  if(host){
+    right+='<div class="row"><label class="file">대상 목록 txt<input type="file" id="fTargets" accept=".txt"></label>'+
+              '<label class="file">만점·항목 배점 txt<input type="file" id="fCrits" accept=".txt"></label>'+
+              '<label class="file">통합 파일(대상+항목) txt<input type="file" id="fCombined" accept=".txt"></label></div>'+
+       '<div class="row" style="margin-top:10px"><label class="file">이어하기 파일(json/txt) 불러오기<input type="file" id="fResumeSetup" accept=".json,.txt"></label></div>'+
+       '<p class="tiny muted" style="margin-top:6px">통합 파일 하나로 대상·항목을 한 번에 불러올 수도 있습니다(아래 파일 형식 참고). '+
+       '투표 중 다운로드해둔 결과 파일을 불러오면 대상·항목이 자동으로 채워지고, 이미 채점된 내역은 유지된 채로 이어서 진행할 수 있습니다.</p>';
+  }
   right+='<div class="grid2" style="margin-top:12px">'+
      '<div><h3>대상 ('+R0.targets.length+')</h3>'+(R0.targets.length?'<div class="small">'+R0.targets.map(esc).join(" · ")+'</div>':'<div class="small muted">아직 없음</div>')+'</div>'+
      '<div><h3>항목 ('+crits.length+') · 만점 '+esc(R0.maxTotal)+'점</h3>'+
-       (crits.length?'<div class="small">'+crits.map(c=>esc(c.name)+' <span class="muted">'+c.max+'점</span>').join(" · ")+'</div>':'<div class="small muted">아직 없음</div>')+
+       (crits.length?'<div class="small">'+crits.map(c=>'<span'+(c.desc?' title="'+esc(c.desc)+'"':"")+'>'+esc(c.name)+' <span class="muted">'+c.max+'점</span></span>').join(" · ")+'</div>':'<div class="small muted">아직 없음</div>')+
      '</div></div>';
   if(crits.length && Math.abs(sum-(Number(R0.maxTotal)||0))>0.001)
     right+='<div class="banner warn" style="margin-top:12px">항목 배점의 합('+num(sum,2)+')이 만점('+esc(R0.maxTotal)+')과 다릅니다. '+
@@ -616,9 +973,23 @@ function viewSetup(){
        ?"모두가 같은 대상을 보고, 전원이 제출해야 다음 대상으로 넘어갑니다. 이전 대상으로 되돌아가는 것은 방장만 할 수 있습니다."
        :"각자 자기 속도로 넘기고 되돌아갈 수 있습니다. 전원이 끝까지 마쳐야 결과가 표시됩니다.")+'</p></div>';
 
+  right+='<div class="card"><h2>3. 순서 설정</h2><div class="seg">'+
+     '<button data-act="order" data-order="seq" class="'+(R0.order!=="random"?"on":"")+'"'+(host?"":" disabled")+'>순서대로</button>'+
+     '<button data-act="order" data-order="random" class="'+(R0.order==="random"?"on":"")+'"'+(host?"":" disabled")+'>무작위</button></div>'+
+     '<p class="small muted" style="margin-top:10px">'+(R0.order==="random"
+       ?"시작하기를 누르는 순간 대상 순서가 한 번 무작위로 섞이고, 이후 모든 멤버에게 같은 순서로 표시됩니다."
+       :"대상 목록 파일에 적은 순서 그대로 채점을 진행합니다.")+'</p></div>';
+
+  right+='<div class="card"><h2>4. 채점 방식</h2><div class="seg">'+
+     '<button data-act="trim" data-trim="0" class="'+(!R0.trim?"on":"")+'"'+(host?"":" disabled")+'>전체 평균</button>'+
+     '<button data-act="trim" data-trim="1" class="'+(R0.trim?"on":"")+'"'+(host?"":" disabled")+'>최고·최저 제외 평균</button></div>'+
+     '<p class="small muted" style="margin-top:10px">'+(R0.trim
+       ?"각 항목마다 가장 높은 점수 1개와 가장 낮은 점수 1개를 뺀 나머지 점수로 평균을 냅니다. (채점자가 3명 이상인 항목에만 적용되고, 2명 이하면 그냥 평균을 냅니다.)"
+       :"모든 채점자의 점수를 그대로 평균 냅니다.")+'</p></div>';
+
   if(host){
     const ready=R0.targets.length>0&&crits.length>0;
-    right+='<div class="card"><h2>3. 시작</h2><button class="primary" data-act="start"'+(ready?"":" disabled")+'>시작하기</button>'+
+    right+='<div class="card"><h2>5. 시작</h2><button class="primary" data-act="start"'+(ready?"":" disabled")+'>시작하기</button>'+
        (ready?"":'<p class="small muted" style="margin-top:8px">두 txt 파일을 모두 불러와야 시작할 수 있습니다.</p>')+
        (R0.resumed?'<p class="small" style="margin-top:8px">이어하기 데이터가 불러와졌습니다. 기존 점수는 유지됩니다.</p>':"")+'</div>';
   }else right+='<div class="card muted">방장이 시작하기를 누르면 자동으로 시작됩니다.</div>';
@@ -645,7 +1016,8 @@ function viewScoring(){
   left+='<div class="card">';
   crits.forEach((c,ci)=>{
     const sk=!!S.skip[ci];
-    left+='<div class="crit'+(sk?" skipped":"")+'"><div class="nm">'+esc(c.name)+'<div class="w">배점 '+c.max+'점</div></div>'+
+    left+='<div class="crit'+(sk?" skipped":"")+'"><div class="nm">'+esc(c.name)+
+       (c.desc?'<div class="dsc">'+esc(c.desc)+'</div>':"")+'<div class="w">배점 '+c.max+'점</div></div>'+
        '<input type="text" inputmode="decimal" data-ci="'+ci+'" class="scoreInput" placeholder="0~100" value="'+esc(S.draft[ci]||"")+'"'+(sk?" disabled":"")+'>'+
        '<button class="sm '+(sk?"primary":"ghost")+'" data-act="skip" data-ci="'+ci+'">'+(sk?"스킵됨":"스킵")+'</button></div>';
   });
@@ -678,26 +1050,86 @@ function viewScoring(){
      '<button class="sm" data-act="savejson">json으로 저장</button>'+
      '<button class="sm" data-act="savetxt">txt로 저장</button>'+
      '<button class="sm ghost" data-act="leave">방 나가기</button></div>'+
-     '<p class="tiny muted" style="margin-top:8px">저장한 파일을 첫 화면의 ‘이어하기 파일 불러오기’로 열면 새 멤버를 추가해 이어서 진행할 수 있습니다.</p></div>';
+     '<p class="tiny muted" style="margin-top:8px">저장한 파일을 로비의 ‘이어하기 파일 불러오기’로 열면 이어서 진행할 수 있습니다.</p>';
+  if(isHost()){
+    right+='<div class="row" style="margin-top:10px">'+
+       '<button class="sm primary" data-act="curdl1">현재 결과 – 총점만 (txt)</button>'+
+       '<button class="sm primary" data-act="curdl2">현재 결과 – 항목별+총점 (txt)</button></div>'+
+       '<p class="tiny muted" style="margin-top:6px">방장만 다운로드할 수 있으며, 지금까지 제출된 점수만 집계됩니다. 투표는 종료되지 않습니다.</p>';
+  }
+  right+='</div>';
 
   h+='<div class="scoregrid"><div class="col">'+left+'</div><div class="col">'+right+'</div></div>';
   return h;
 }
 
+function gradesTableHTML(){
+  const g=computeGrades();
+  let h='';
+  if(g.invalidCount>0)
+    h+='<p class="small muted" style="margin-bottom:8px">채점이 완료되지 않아 총점이 없는 대상 '+g.invalidCount+'개는 등급 산정에서 제외되었습니다.</p>';
+  const row=(name,note,members,cut)=>
+    '<tr><td><b>'+esc(name)+'</b><div class="tiny muted">'+esc(note)+'</div></td>'+
+    '<td class="num">'+members.length+'</td>'+
+    '<td class="num">'+(cut===null?'<span class="muted">–</span>':num(cut,2))+'</td>'+
+    '<td class="small">'+(members.length?members.map(m=>esc(m.name)).join(", "):'<span class="muted">–</span>')+'</td></tr>';
+  h+='<div class="tablewrap"><table><thead><tr><th>등급</th><th class="num">인원</th><th class="num">컷(최저점)</th><th>대상</th></tr></thead><tbody>'+
+     row("양급","규격 외 · 상위 "+g.special.members.length+"개",g.special.members,g.special.cut)+
+     g.groups.map(gr=>row(gr.name,"상위 "+gr.from+"%~"+gr.to+"%",gr.members,gr.cut)).join("")+
+     '</tbody></table></div>';
+  return h;
+}
+function sortArrow(key){
+  if(!S.resultSort || S.resultSort.key!==key) return "";
+  return S.resultSort.dir==="asc"?" ▲":" ▼";
+}
 function viewResults(){
-  const R0=S.room, crits=R0.criteria, rows=aggregate();
+  const R0=S.room, crits=R0.criteria, rows=aggregate(), trimOn=!!R0.trim;
   let h=bannerHTML()+errHTML();
   h+='<div class="card"><h2>최종 결과 <span class="small muted">(만점 '+esc(R0.maxTotal)+'점)</span></h2>'+
-     '<p class="small muted">각 항목은 배점으로 환산된 점수이며, 총점은 그 합입니다. (스킵된 항목은 제외 후 만점 기준으로 환산)</p>'+
+     '<p class="small muted">각 항목은 배점으로 환산된 점수이며, 총점은 그 합입니다. (스킵된 항목은 제외 후 만점 기준으로 환산)'+
+     (trimOn?' 표준편차는 채점자 개인 총점 기준으로, 최고·최저 1명씩 제외한 값과 전체 값을 함께 보여줍니다.':' 표준편차는 채점자 개인 총점(만점 기준 환산) 간의 편차입니다.')+'</p>'+
      '<div id="liveArea">'+liveHTML()+'</div></div>';
+
+  /* 통계 계산 + 검색/정렬 적용 */
+  let display=rows.map((r,ti)=>{
+    const totals=judgeTotalsForTarget(ti);
+    return { ti, name:r.name, per:r.per, total:r.total,
+      stdAll:stddev(totals), stdTrim:stddev(trimExtremes(totals)) };
+  });
+  const q=(S.resultSearch||"").trim().toLowerCase();
+  if(S.resultSort && S.resultSort.key){
+    const key=S.resultSort.key, dir=S.resultSort.dir;
+    display=display.slice().sort((a,b)=>{
+      const av=a[key], bv=b[key];
+      if(av===null && bv===null) return 0;
+      if(av===null) return 1;
+      if(bv===null) return -1;
+      return dir==="asc"?av-bv:bv-av;
+    });
+  }
+
+  h+='<div class="row" style="margin-bottom:10px"><input type="text" id="resultSearch" placeholder="대상 검색" '+
+     'style="max-width:240px" value="'+esc(S.resultSearch||"")+'"></div>';
+
   h+='<div class="tablewrap"><table><thead><tr><th>대상</th>'+
-     crits.map(c=>'<th class="num">'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
-     '<th class="num">총점<div class="tiny muted">/'+esc(R0.maxTotal)+'점</div></th><th></th></tr></thead><tbody>';
-  rows.forEach((r,ti)=>{
-    h+='<tr><td><b>'+esc(r.name)+'</b></td>'+
+     crits.map(c=>'<th class="num"'+(c.desc?' title="'+esc(c.desc)+'"':"")+'>'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
+     '<th class="num sortable" data-act="sortresult" data-key="total">총점'+sortArrow("total")+'<div class="tiny muted">/'+esc(R0.maxTotal)+'점</div></th>'+
+     (trimOn
+       ?'<th class="num sortable" data-act="sortresult" data-key="stdTrim">표준편차(제외)'+sortArrow("stdTrim")+'</th>'+
+        '<th class="num sortable" data-act="sortresult" data-key="stdAll">표준편차(전체)'+sortArrow("stdAll")+'</th>'
+       :'<th class="num sortable" data-act="sortresult" data-key="stdAll">표준편차'+sortArrow("stdAll")+'</th>')+
+     '<th></th></tr></thead><tbody id="resultTbody">';
+  display.forEach(r=>{
+    const hide=q && !r.name.toLowerCase().includes(q);
+    h+='<tr data-tname="'+esc(r.name)+'"'+(hide?' style="display:none"':"")+'><td><b>'+esc(r.name)+'</b></td>'+
        r.per.map(p=>'<td class="num">'+(p.pts===null?'<span class="muted">–</span>':num(p.pts,2))+'</td>').join("")+
        '<td class="num"><b>'+(r.total===null?"–":num(r.total,2))+'</b></td>'+
-       '<td><button class="sm" data-act="detail" data-ti="'+ti+'">자세히 보기</button></td></tr>';
+       (trimOn
+         ?'<td class="num">'+(r.stdTrim===null?'<span class="muted">–</span>':num(r.stdTrim,2))+'</td>'+
+          '<td class="num">'+(r.stdAll===null?'<span class="muted">–</span>':num(r.stdAll,2))+'</td>'
+         :'<td class="num">'+(r.stdAll===null?'<span class="muted">–</span>':num(r.stdAll,2))+'</td>')+
+       '<td><button class="sm" data-act="detail" data-ti="'+r.ti+'">자세히 보기</button></td></tr>';
   });
   h+='</tbody></table></div>';
   h+='<div class="card" style="margin-top:14px"><h3>결과 다운로드</h3><div class="row">'+
@@ -705,6 +1137,17 @@ function viewResults(){
      '<button class="primary sm" data-act="dl2">항목별 + 총점 (txt)</button>'+
      '<button class="sm" data-act="savejson">전체 데이터 (json)</button></div>'+
      '<p class="tiny muted" style="margin-top:8px">구성원 누구나 다운로드할 수 있습니다.</p></div>';
+
+  h+='<div class="card" style="margin-top:14px"><h3>등급 발표</h3>';
+  if(!R0.gradesRevealed){
+    h+= isHost()
+      ? '<button class="primary sm" data-act="revealgrades">등급 발표</button><p class="tiny muted" style="margin-top:8px">누르면 모든 참가자 화면에 등급이 함께 공개됩니다.</p>'
+      : '<p class="small muted">방장이 등급을 발표하면 여기에 표시됩니다.</p>';
+  }else{
+    h+=gradesTableHTML();
+  }
+  h+='</div>';
+
   h+='<div class="card">'+chatPanelHTML()+'</div>';
   h+='<div class="card"><div class="row">'+(isHost()?'<button class="sm" data-act="backscore">점수 매기기로 돌아가기</button>':"")+
      '<button class="sm ghost" data-act="leave">방 나가기</button></div></div>';
@@ -718,7 +1161,7 @@ function modalHTML(){
     '<button class="sm ghost" data-act="closemodal">닫기</button></div>'+
     '<p class="tiny muted" style="margin-top:6px">괄호 안은 입력값(0~100), 앞의 숫자는 배점 환산 점수입니다.</p>'+
     '<div class="tablewrap" style="margin-top:8px"><table><thead><tr><th>멤버</th>'+
-    crits.map(c=>'<th class="num">'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
+    crits.map(c=>'<th class="num"'+(c.desc?' title="'+esc(c.desc)+'"':"")+'>'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
     '<th class="num">개인 총점</th></tr></thead><tbody>';
   ids.forEach(mid=>{
     if(!isDone(mid,ti)){
@@ -742,7 +1185,18 @@ function modalHTML(){
 function bind(){
   const nick=$("#nick");
   if(nick) nick.addEventListener("input",e=>{ S.name=e.target.value.trim().slice(0,20); ls("sc.name",S.name); });
-  APP.querySelectorAll(".scoreInput").forEach(i=>i.addEventListener("input",e=>{ S.draft[e.target.dataset.ci]=e.target.value; }));
+  APP.querySelectorAll(".scoreInput").forEach(i=>i.addEventListener("input",e=>{
+    const ci=e.target.dataset.ci, raw=e.target.value, single=e.target.dataset.scope==="single";
+    const draftObj = single ? S.single.draft : S.draft;
+    const valObj = single ? S.single.draftVal : S.draftVal;
+    const magic=magicParse(raw);
+    if(magic){
+      draftObj[ci]=magic.display; valObj[ci]=magic.value;
+      e.target.value=magic.display;
+    }else{
+      draftObj[ci]=raw; delete valObj[ci];
+    }
+  }));
 
   const chatInput=$("#chatInput");
   if(chatInput){
@@ -751,6 +1205,16 @@ function bind(){
       if(e.key==="Enter"){ e.preventDefault(); const v=chatInput.value; chatInput.value=""; sendChat(v); }
     });
   }
+
+  const rsearch=$("#resultSearch");
+  if(rsearch) rsearch.addEventListener("input",e=>{
+    S.resultSearch=e.target.value;
+    const q=S.resultSearch.trim().toLowerCase();
+    APP.querySelectorAll("#resultTbody tr[data-tname]").forEach(tr=>{
+      const nm=(tr.dataset.tname||"").toLowerCase();
+      tr.style.display=(!q||nm.includes(q))?"":"none";
+    });
+  });
 
   const rf=$("#resumeFile");
   if(rf) rf.addEventListener("change",async e=>{
@@ -780,11 +1244,97 @@ function bind(){
       S.err=""; await update(R(Proom(S.code)),{criteria:parsed.criteria,maxTotal:parsed.maxTotal});
     }catch(err){ S.err=err.message; render(true); }
   });
+  const fcb=$("#fCombined");
+  if(fcb) fcb.addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{
+      const parsed=parseCombined(await readFile(f));
+      S.err="";
+      await update(R(Proom(S.code)),{targets:parsed.targets, criteria:parsed.criteria, maxTotal:parsed.maxTotal});
+    }catch(err){ S.err=err.message; render(true); }
+  });
+  const frs=$("#fResumeSetup");
+  if(frs) frs.addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{
+      const d=JSON.parse(await readFile(f));
+      if(!d||!Array.isArray(d.targets)||!Array.isArray(d.criteria)) throw new Error("형식이 올바르지 않습니다.");
+      S.err="";
+      await update(R(Proom(S.code)),{
+        targets:d.targets, criteria:d.criteria, maxTotal:d.maxTotal||S.room.maxTotal,
+        order:d.order||S.room.order||"seq", trim:d.trim!==undefined?!!d.trim:!!S.room.trim,
+        cursor:d.cursor||0, maxReached:d.maxReached||0, resumed:true
+      });
+      const merge={};
+      (d.members||[]).forEach(m=>{
+        if(m&&m.id&&!members()[m.id]) merge["members/"+m.id]={name:m.name||"이전 멤버",ownerId:null,cursor:m.cursor||0,joinedAt:Date.now()};
+      });
+      Object.keys(d.scores||{}).forEach(id=>{ const s=d.scores[id];
+        merge["scores/"+id]={name:s.name||"이전 멤버",v:obj(s.v),done:obj(s.done)}; });
+      if(Object.keys(merge).length) await update(R(Proom(S.code)),merge);
+      S.banner="이어하기 데이터를 불러왔습니다. 이미 채점된 항목은 그대로 유지된 채 이어서 진행할 수 있습니다.";
+      render(true);
+    }catch(err){ S.err="이어하기 파일을 읽을 수 없습니다: "+err.message; render(true); }
+  });
 
-  APP.querySelectorAll("[data-act]").forEach(b=>b.addEventListener("click",ev=>{
-    if(b.dataset.act==="closemodal"&&ev.target!==b&&ev.target.closest("[data-stop]")&&!ev.target.dataset.act) return;
-    ev.stopPropagation(); handle(b.dataset.act,b.dataset);
-  }));
+  const fst=$("#fSingleTargets");
+  if(fst) fst.addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{
+      const list=parseTargets(await readFile(f));
+      if(!list.length) throw new Error("대상이 비어 있습니다.");
+      S.err=""; S.single.targets=list; render(true);
+    }catch(err){ S.err=err.message; render(true); }
+  });
+  const fsc=$("#fSingleCriteria");
+  if(fsc) fsc.addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{
+      const parsed=parseCriteria(await readFile(f));
+      S.err=""; S.single.criteria=parsed.criteria; S.single.maxTotal=parsed.maxTotal; render(true);
+    }catch(err){ S.err=err.message; render(true); }
+  });
+  const fscb=$("#fSingleCombined");
+  if(fscb) fscb.addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{
+      const parsed=parseCombined(await readFile(f));
+      S.err=""; S.single.targets=parsed.targets; S.single.criteria=parsed.criteria; S.single.maxTotal=parsed.maxTotal; render(true);
+    }catch(err){ S.err=err.message; render(true); }
+  });
+  const fsr=$("#fSingleResume");
+  if(fsr) fsr.addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    try{
+      const d=JSON.parse(await readFile(f));
+      if(!d||!Array.isArray(d.targets)||!Array.isArray(d.criteria)) throw new Error("형식이 올바르지 않습니다.");
+      S.single.targets=d.targets; S.single.criteria=d.criteria; S.single.maxTotal=d.maxTotal||100;
+      S.single.v=obj(d.v); S.single.done=obj(d.done);
+      if(d.name){ S.name=d.name; ls("sc.name",S.name); }
+      S.err=""; S.banner="이전 채점 내용을 불러왔습니다.";
+      render(true);
+    }catch(err){ S.err="파일을 읽을 수 없습니다: "+err.message; render(true); }
+  });
+  const fcol=$("#fSingleCollect");
+  if(fcol) fcol.addEventListener("change",async e=>{
+    const files=Array.from(e.target.files||[]);
+    if(!files.length) return;
+    try{
+      for(const f of files){
+        const d=JSON.parse(await readFile(f));
+        if(!d||!Array.isArray(d.targets)||!Array.isArray(d.criteria)||!d.v) throw new Error(f.name+": 형식이 올바르지 않습니다.");
+        S.single.collected.push({
+          id:"u"+S.single.collected.length+"_"+Date.now()+"_"+Math.random().toString(36).slice(2,6),
+          name:d.name||f.name.replace(/\.[^.]+$/,""),
+          targets:d.targets, criteria:d.criteria, maxTotal:d.maxTotal,
+          v:obj(d.v), done:obj(d.done)
+        });
+      }
+      S.err="";
+    }catch(err){ S.err="파일을 읽을 수 없습니다: "+err.message; }
+    e.target.value="";
+    render(true);
+  });
 }
 
 async function handle(act,d){
@@ -797,16 +1347,31 @@ async function handle(act,d){
     else if(act==="home"){ S.pending=null; S.screen="lobby"; render(true); }
     else if(act==="leave"){ await leaveRoom(); }
     else if(act==="mode"){ await update(R(Proom(S.code)),{mode:d.mode}); }
-    else if(act==="start"){ await update(R(Proom(S.code)),{phase:"scoring"}); S.draftFor=null; S.banner=""; }
-    else if(act==="skip"){ S.skip[d.ci]=!S.skip[d.ci]; if(S.skip[d.ci]) S.draft[d.ci]=""; render(true); }
-    else if(act==="skipall"){ S.room.criteria.forEach((c,ci)=>S.skip[ci]=true); render(true); }
+    else if(act==="order"){ await update(R(Proom(S.code)),{order:d.order}); }
+    else if(act==="trim"){ await update(R(Proom(S.code)),{trim:d.trim==="1"}); }
+    else if(act==="kick"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await kickMember(d.mid); }
+    else if(act==="start"){
+      const targets = S.room.order==="random" ? shuffleArr(S.room.targets) : S.room.targets;
+      await update(R(Proom(S.code)),{phase:"scoring", targets});
+      S.draftFor=null; S.banner="";
+    }
+    else if(act==="skip"){ S.skip[d.ci]=!S.skip[d.ci]; if(S.skip[d.ci]){ S.draft[d.ci]=""; delete S.draftVal[d.ci]; } render(true); }
+    else if(act==="skipall"){ S.room.criteria.forEach((c,ci)=>{S.skip[ci]=true; delete S.draftVal[ci];}); render(true); }
     else if(act==="submit"){ S.banner=""; await submitTarget(); }
     else if(act==="prev"){ await moveCursor(-1); }
     else if(act==="skiptarget"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await moveCursor(1); }
     else if(act==="next"){ await moveCursor(1); }
     else if(act==="forceresult"){ await update(R(Proom(S.code)),{phase:"results"}); }
+    else if(act==="revealgrades"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await update(R(Proom(S.code)),{gradesRevealed:true}); }
     else if(act==="backscore"){ await update(R(Proom(S.code)),{phase:"scoring"}); S.draftFor=null; }
     else if(act==="detail"){ S.modal={ti:Number(d.ti)}; render(true); }
+    else if(act==="sortresult"){
+      const key=d.key;
+      if(!S.resultSort||S.resultSort.key!==key) S.resultSort={key,dir:"desc"};
+      else if(S.resultSort.dir==="desc") S.resultSort={key,dir:"asc"};
+      else S.resultSort={key:null,dir:"desc"};
+      render(true);
+    }
     else if(act==="closemodal"){ S.modal=null; render(true); }
     else if(act==="savejson") download("scoring-"+S.code+".json",JSON.stringify(buildSession(),null,2));
     else if(act==="savetxt")  download("scoring-"+S.code+".txt", JSON.stringify(buildSession(),null,2));
@@ -818,6 +1383,53 @@ async function handle(act,d){
       const rows=aggregate(), crits=S.room.criteria;
       const head="# 만점 "+S.room.maxTotal+"점 · 항목 순서: "+crits.map(c=>c.name+"("+c.max+"점)").join(" / ")+" / 총점\n";
       download("결과_항목별.txt", head+rows.map(r=>r.name+" : "+r.per.map(p=>p.pts===null?"-":num(p.pts,2)).join(" / ")+" / "+(r.total===null?"-":num(r.total,2))).join("\n")+"\n");
+    }
+    else if(act==="curdl1"){
+      if(!isHost()){S.err="방장만 다운로드할 수 있습니다.";return render(true);}
+      const rows=aggregate();
+      download("진행중_총점_"+S.code+".txt", rows.map(r=>r.name+" : "+(r.total===null?"-":num(r.total,2))).join("\n")+"\n");
+    }
+    else if(act==="curdl2"){
+      if(!isHost()){S.err="방장만 다운로드할 수 있습니다.";return render(true);}
+      const rows=aggregate(), crits=S.room.criteria;
+      const head="# ("+new Date().toLocaleString()+" 기준, 진행 중) 만점 "+S.room.maxTotal+"점 · 항목 순서: "+crits.map(c=>c.name+"("+c.max+"점)").join(" / ")+" / 총점\n";
+      download("진행중_항목별_"+S.code+".txt", head+rows.map(r=>r.name+" : "+r.per.map(p=>p.pts===null?"-":num(p.pts,2)).join(" / ")+" / "+(r.total===null?"-":num(r.total,2))).join("\n")+"\n");
+    }
+    else if(act==="singlestart"){
+      S.screen="singlesetup";
+      S.single={ targets:[], criteria:[], maxTotal:100, cursor:0, v:{}, done:{}, draft:{}, draftVal:{}, draftFor:null, skip:{}, collected:[] };
+      S.err=""; render(true);
+    }
+    else if(act==="singlecollect"){
+      S.screen="singlecollect";
+      S.single={ targets:[], criteria:[], maxTotal:100, cursor:0, v:{}, done:{}, draft:{}, draftVal:{}, draftFor:null, skip:{}, collected:[] };
+      S.err=""; render(true);
+    }
+    else if(act==="singlehome"){ S.screen="lobby"; S.single=null; S.err=""; S.banner=""; render(true); }
+    else if(act==="singlego"){
+      if(!S.name){ S.err="이름을 입력하세요."; return render(true); }
+      if(!S.single.targets.length||!S.single.criteria.length){ S.err="대상과 항목 파일을 모두 불러오세요."; return render(true); }
+      S.single.cursor=singleFirstUndone(); S.single.draftFor=null; S.screen="singlescore"; S.err=""; render(true);
+    }
+    else if(act==="singlesubmit"){ singleSubmit(); }
+    else if(act==="singleprev"){ singleMove(-1); }
+    else if(act==="singlenext"){ singleMove(1); }
+    else if(act==="singleskip"){ S.single.skip[d.ci]=!S.single.skip[d.ci]; if(S.single.skip[d.ci]){ S.single.draft[d.ci]=""; delete S.single.draftVal[d.ci]; } render(true); }
+    else if(act==="singleskipall"){ S.single.criteria.forEach((c,ci)=>{S.single.skip[ci]=true; delete S.single.draftVal[ci];}); render(true); }
+    else if(act==="singleexport"){
+      const nm=(S.name||"이름없음").replace(/[\\/:*?"<>|]/g,"_");
+      download("개인결과_"+nm+".json", JSON.stringify(buildSingleExport(),null,2));
+    }
+    else if(act==="singleremove"){ S.single.collected.splice(Number(d.idx),1); render(true); }
+    else if(act==="singlereset"){ S.single.collected=[]; render(true); }
+    else if(act==="singledl1"){
+      const combo=singleCombined(); if(!combo) return;
+      download("취합결과_총점.txt", combo.rows.map(r=>r.name+" : "+(r.total===null?"-":num(r.total,2))).join("\n")+"\n");
+    }
+    else if(act==="singledl2"){
+      const combo=singleCombined(); if(!combo) return;
+      const head="# 만점 "+combo.maxTotal+"점 · 항목 순서: "+combo.criteria.map(c=>c.name+"("+c.max+"점)").join(" / ")+" / 총점\n";
+      download("취합결과_항목별.txt", head+combo.rows.map(r=>r.name+" : "+r.per.map(p=>p.pts===null?"-":num(p.pts,2)).join(" / ")+" / "+(r.total===null?"-":num(r.total,2))).join("\n")+"\n");
     }
   }catch(e){ S.err="오류: "+((e&&e.message)||"알 수 없음"); render(true); }
 }
