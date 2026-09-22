@@ -113,14 +113,24 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .gradeStage-title{color:#fff;text-align:center;margin-bottom:14px}
 .gradeStage-title h2{margin:0;font-size:22px}
 .gradeStage{width:100%;max-width:640px;display:flex;flex-direction:column;gap:14px}
+.gradeStage.single{position:relative;min-height:180px;display:flex;align-items:center;justify-content:center}
+.gradeStage.single .gradeCard{width:100%;max-width:480px;position:absolute}
+.gradeDots{display:flex;gap:8px;justify-content:center;margin-top:18px}
+.gradeDot{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.28);transition:background .25s,transform .25s}
+.gradeDot.on{background:#fff;transform:scale(1.15)}
 .gradeSkip{position:fixed;top:16px;right:16px;z-index:10000;background:rgba(255,255,255,.15)!important;
   color:#fff!important;border-color:rgba(255,255,255,.4)!important}
-.gradeClose{margin:20px auto 0;display:block}
+.gradeClose{margin:22px auto 0;display:block}
 @keyframes gradeCardIn{
   0%{opacity:0;transform:translateY(26px) scale(.92);}
   65%{opacity:1;transform:translateY(-4px) scale(1.03);}
   100%{opacity:1;transform:translateY(0) scale(1);}
 }
+@keyframes gradeCardOut{
+  0%{opacity:1;transform:scale(1) translateY(0);}
+  100%{opacity:0;transform:scale(.9) translateY(-16px);}
+}
+.gradeCard.leaving{animation:gradeCardOut .32s ease forwards!important}
 @keyframes gradeShine{ 0%{background-position:-160% 0;} 100%{background-position:260% 0;} }
 @keyframes gradeGlow{
   0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0);}
@@ -1180,22 +1190,33 @@ async function playGradeReveal(g){
   title.className="gradeStage-title";
   title.innerHTML="<h2>🏆 등급 발표</h2>";
   const stage=document.createElement("div");
-  stage.className="gradeStage";
-  ov.appendChild(skip); ov.appendChild(title); ov.appendChild(stage);
+  stage.className="gradeStage single";
+  const dots=document.createElement("div");
+  dots.className="gradeDots";
+  ov.appendChild(skip); ov.appendChild(title); ov.appendChild(stage); ov.appendChild(dots);
   document.body.appendChild(ov);
 
   const seq=[
-    {tier:"song", label:"송급",  info:g.groups.find(x=>x.name==="송급"),  delay:900},
-    {tier:"wan",  label:"완급",  info:g.groups.find(x=>x.name==="완급"),  delay:900},
-    {tier:"bak",  label:"박급",  info:g.groups.find(x=>x.name==="박급"),  delay:900},
-    {tier:"bae",  label:"배급",  info:g.groups.find(x=>x.name==="배급"),  delay:1000},
-    {tier:"beom", label:"범급",  info:g.groups.find(x=>x.name==="범급"),  delay:1100},
-    {tier:"do",   label:"도급",  info:g.groups.find(x=>x.name==="도급"),  delay:1300},
-    {tier:"yang", label:"양급",  info:g.special,                          delay:1600, special:true}
+    {tier:"song", label:"송급",  info:g.groups.find(x=>x.name==="송급"),  delay:1000},
+    {tier:"wan",  label:"완급",  info:g.groups.find(x=>x.name==="완급"),  delay:1000},
+    {tier:"bak",  label:"박급",  info:g.groups.find(x=>x.name==="박급"),  delay:1000},
+    {tier:"bae",  label:"배급",  info:g.groups.find(x=>x.name==="배급"),  delay:1100},
+    {tier:"beom", label:"범급",  info:g.groups.find(x=>x.name==="범급"),  delay:1200},
+    {tier:"do",   label:"도급",  info:g.groups.find(x=>x.name==="도급"),  delay:1400},
+    {tier:"yang", label:"양급",  info:g.special,                          delay:1800, special:true}
   ];
+  seq.forEach(()=>{ const d=document.createElement("div"); d.className="gradeDot"; dots.appendChild(d); });
+  const dotEls=dots.querySelectorAll(".gradeDot");
 
-  for(const step of seq){
-    if(!skipped) await sleep(step.delay);
+  let current=null;
+  for(let i=0;i<seq.length;i++){
+    const step=seq[i];
+    /* 이전 카드를 먼저 살짝 사라지게 한 뒤, 새 카드를 그 자리에 교체해서 넣는다(한 장씩만 보임) */
+    if(current){
+      current.classList.add("leaving");
+      await sleep(320);
+      try{current.remove();}catch(e){}
+    }
     const card=document.createElement("div");
     card.className="gradeCard tier-"+step.tier;
     const info=step.info||{members:[],cut:null};
@@ -1204,15 +1225,17 @@ async function playGradeReveal(g){
       "<div class='gcut'>"+info.members.length+"명"+(info.cut!==null?" · 컷 "+num(info.cut,2)+"점":"")+"</div>"+
       "<div class='gnames'>"+names+"</div>";
     stage.appendChild(card);
+    current=card;
+    dotEls[i].classList.add("on");
     if(step.special) spawnConfetti(ov);
-    ov.scrollTop=ov.scrollHeight;
+    await sleep(skipped ? 250 : step.delay);
   }
 
   const closeBtn=document.createElement("button");
   closeBtn.className="primary gradeClose";
   closeBtn.textContent="닫기";
   closeBtn.addEventListener("click",()=>{ try{ov.remove();}catch(e){} });
-  stage.appendChild(closeBtn);
+  ov.appendChild(closeBtn);
 }
 
 function sortArrow(key){
