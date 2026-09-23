@@ -27,7 +27,7 @@ html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--fg);font-size:15px;line-height:1.55;
   font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   -webkit-text-size-adjust:100%}
-.wrap{max-width:900px;margin:0 auto;padding:18px 16px 60px}
+.wrap{max-width:1600px;margin:0 auto;padding:20px 28px 60px}
 h1{font-size:20px;margin:0;letter-spacing:-.02em}
 h2{font-size:17px;margin:0 0 10px}
 h3{font-size:14px;margin:0 0 8px;color:var(--muted);font-weight:600}
@@ -89,11 +89,11 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:none;border-radius:0;background:transparent}
 .seg button.on{background:var(--accent);color:var(--accent-fg)}
-.setupgrid,.scoregrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
-.scoregrid{grid-template-columns:1.25fr 1fr}
+.setupgrid,.scoregrid{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+.scoregrid{grid-template-columns:1.6fr 1.1fr}
 @media (max-width:760px){.setupgrid,.scoregrid{grid-template-columns:1fr}}
 .col{min-width:0}
-.chatmsgs{height:220px;overflow-y:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);
+.chatmsgs{height:320px;overflow-y:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);
   border-radius:9px;padding:8px 10px;background:var(--panel2);display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
 .chatmsg{font-size:13.5px;line-height:1.4;overflow-wrap:anywhere}
 .chatmsg .cn{font-weight:700;margin-right:6px}
@@ -395,9 +395,9 @@ function refreshChat(){
 }
 
 /* ───────── 점수 계산 ─────────
-   각 항목은 0~100 으로 입력받고, 항목 배점(max)에 비례해 환산됩니다.
-   항목 환산점 = 평균/100 × 항목 배점
-   총점 = (환산점 합 / 집계된 항목 배점 합) × 만점
+   각 항목은 그 항목의 배점(max) 범위(0~max) 안에서 직접 입력받습니다.
+   항목 점수 = 평균 (입력값 자체가 이미 배점 범위 안의 점수이므로 별도 환산 없음)
+   총점 = (항목 점수 합 / 집계된 항목 배점 합) × 만점
    → 아무도 점수를 주지 않은(전원 스킵) 항목은 배점 합에서도 빠집니다.
    trim=true면 항목마다 최고점 1개·최저점 1개를 뺀 나머지로 평균 (채점자가 3명 이상인 항목에만 적용).
    (실시간 방/싱글 모드 취합 양쪽에서 공용으로 사용) */
@@ -420,7 +420,7 @@ function aggregateFrom(targets, criteria, maxTotal, scoresObj, ids, trim){
         used=sorted.slice(1,-1);
       }
       const avg=used.reduce((a,b)=>a+b,0)/used.length;
-      return { avg:avg, pts: avg/100*(Number(c.max)||0), n:vals.length };
+      return { avg:avg, pts: avg, n:vals.length };
     });
     let earned=0, maxSum=0;
     per.forEach((p,ci)=>{ if(p.pts!==null){ earned+=p.pts; maxSum+=Number(criteria[ci].max)||0; } });
@@ -444,7 +444,7 @@ function judgeTotalsFrom(criteria, maxTotal, scoresObj, ids, ti){
     let earned=0, maxSum=0;
     criteria.forEach((c,ci)=>{
       const v=row[ci];
-      if(typeof v==="number" && isFinite(v)){ earned+=v/100*(Number(c.max)||0); maxSum+=Number(c.max)||0; }
+      if(typeof v==="number" && isFinite(v)){ earned+=v; maxSum+=Number(c.max)||0; }
     });
     if(maxSum>0) totals.push(earned/maxSum*full);
   });
@@ -759,7 +759,8 @@ async function submitTarget(){
     const raw=(S.draft[ci]||"").trim();
     if(raw===""){ S.err="‘"+crits[ci].name+"’ 항목의 점수를 입력하거나 스킵하세요."; return render(true); }
     const v=(S.draftVal&&S.draftVal[ci]!==undefined)?S.draftVal[ci]:Number(raw);
-    if(!isFinite(v)||v<0||v>100){ S.err="‘"+crits[ci].name+"’: 0 이상 100 이하의 실수만 가능합니다."; return render(true); }
+    const cmax=Number(crits[ci].max)||0;
+    if(!isFinite(v)||v<0||v>cmax){ S.err="‘"+crits[ci].name+"’: 0 이상 "+num(cmax,0)+" 이하의 실수만 가능합니다."; return render(true); }
     vals[ci]=v;
   }
   S.err="";
@@ -811,7 +812,8 @@ function singleSubmit(){
     const raw=(S.single.draft[ci]||"").trim();
     if(raw===""){ S.err="‘"+crits[ci].name+"’ 항목의 점수를 입력하거나 스킵하세요."; render(true); return; }
     const v=(S.single.draftVal&&S.single.draftVal[ci]!==undefined)?S.single.draftVal[ci]:Number(raw);
-    if(!isFinite(v)||v<0||v>100){ S.err="‘"+crits[ci].name+"’: 0 이상 100 이하의 실수만 가능합니다."; render(true); return; }
+    const cmax=Number(crits[ci].max)||0;
+    if(!isFinite(v)||v<0||v>cmax){ S.err="‘"+crits[ci].name+"’: 0 이상 "+num(cmax,0)+" 이하의 실수만 가능합니다."; render(true); return; }
     vals[ci]=v;
   }
   S.err="";
@@ -927,7 +929,7 @@ function viewLobby(){
     '<div><div class="tiny">② 만점 + 항목별 배점(+설명)</div><pre class="fmt">200\n창의성 50 얼마나 새로운 아이디어인지\n완성도 25\n전달력 125 발표 태도와 전달력</pre></div>'+
   '</div><p class="tiny" style="margin-top:8px">첫 줄이 만점이고, 그 아래 각 항목이 몇 점을 담당하는지 적습니다. '+
   '항목명과 배점 뒤에 설명을 추가로 적으면(선택 사항) 채점 화면에 항목 아래 함께 표시됩니다. '+
-  '점수는 항목마다 0~100으로 입력하며, 배점에 비례해 환산됩니다.</p>'+
+  '점수는 항목마다 그 항목의 배점 범위(0~해당 배점) 안에서 직접 입력합니다.</p>'+
   '<div style="margin-top:14px"><div class="tiny">③ 통합 파일 (대상 + 항목을 한 파일에)</div>'+
   '<pre class="fmt">[대상]\n1번 참가자\n2번 참가자\n3번 참가자\n\n[항목]\n200\n창의성 50 얼마나 새로운 아이디어인지\n완성도 25\n전달력 125 발표 태도와 전달력</pre>'+
   '<p class="tiny" style="margin-top:6px">‘[대상]’ 구획과 ‘[항목]’ 구획을 한 파일에 나눠 적으면 됩니다(대괄호는 생략 가능, 두 구획의 순서는 바뀌어도 됨). '+
@@ -986,12 +988,12 @@ function viewSingleScore(){
     const sk=!!s.skip[ci];
     h+='<div class="crit'+(sk?" skipped":"")+'"><div class="nm">'+esc(c.name)+
        (c.desc?'<div class="dsc">'+esc(c.desc)+'</div>':"")+'<div class="w">배점 '+c.max+'점</div></div>'+
-       '<input type="text" inputmode="decimal" data-ci="'+ci+'" data-scope="single" class="scoreInput" placeholder="0~100" value="'+esc(s.draft[ci]||"")+'"'+(sk?" disabled":"")+'>'+
+       '<input type="text" inputmode="decimal" data-ci="'+ci+'" data-scope="single" class="scoreInput" placeholder="0~'+c.max+'" value="'+esc(s.draft[ci]||"")+'"'+(sk?" disabled":"")+'>'+
        '<button class="sm '+(sk?"primary":"ghost")+'" data-act="singleskip" data-ci="'+ci+'">'+(sk?"스킵됨":"스킵")+'</button></div>';
   });
   h+='<div class="row" style="margin-top:14px"><button class="primary" data-act="singlesubmit">'+(submitted?"다시 제출":"제출")+'</button>'+
      '<button class="ghost sm" data-act="singleskipall">전체 스킵</button>'+(submitted?'<span class="chip done">완료</span>':"")+'</div>'+
-     '<p class="tiny muted" style="margin-top:10px">0~100으로 입력하면 항목 배점에 비례해 환산됩니다. 스킵한 항목은 평균 계산에서 제외됩니다.</p></div>';
+     '<p class="tiny muted" style="margin-top:10px">각 항목의 배점 범위(0~해당 항목 배점) 안에서 직접 입력합니다. 스킵한 항목은 평균 계산에서 제외됩니다.</p></div>';
 
   h+='<div class="card"><div class="row">'+
      '<button data-act="singleprev"'+(ti>0?"":" disabled")+'>← 이전 대상</button>'+
@@ -1162,12 +1164,12 @@ function viewScoring(){
     const sk=!!S.skip[ci];
     left+='<div class="crit'+(sk?" skipped":"")+'"><div class="nm">'+esc(c.name)+
        (c.desc?'<div class="dsc">'+esc(c.desc)+'</div>':"")+'<div class="w">배점 '+c.max+'점</div></div>'+
-       '<input type="text" inputmode="decimal" data-ci="'+ci+'" class="scoreInput" placeholder="0~100" value="'+esc(S.draft[ci]||"")+'"'+(sk?" disabled":"")+'>'+
+       '<input type="text" inputmode="decimal" data-ci="'+ci+'" class="scoreInput" placeholder="0~'+c.max+'" value="'+esc(S.draft[ci]||"")+'"'+(sk?" disabled":"")+'>'+
        '<button class="sm '+(sk?"primary":"ghost")+'" data-act="skip" data-ci="'+ci+'">'+(sk?"스킵됨":"스킵")+'</button></div>';
   });
   left+='<div class="row" style="margin-top:14px"><button class="primary" data-act="submit">'+(submitted?"다시 제출":"제출")+'</button>'+
      '<button class="ghost sm" data-act="skipall">전체 스킵</button>'+(submitted?'<span class="chip done">제출 완료</span>':"")+'</div>'+
-     '<p class="tiny muted" style="margin-top:10px">0~100으로 입력하면 항목 배점에 비례해 환산됩니다. '+
+     '<p class="tiny muted" style="margin-top:10px">각 항목의 배점 범위(0~해당 항목 배점) 안에서 직접 입력합니다. '+
      '스킵한 항목은 0점이 아니라 <b>평균 계산에서 제외</b>됩니다.</p></div>';
 
   left+='<div class="card"><h3>참가자 현황</h3><div id="statusArea">'+statusListHTML()+'</div></div>';
@@ -1584,7 +1586,7 @@ function modalHTML(){
   let h='<div class="modal" data-act="closemodal"><div class="box" data-stop="1">'+
     '<div class="row"><h2 style="margin:0">'+esc(R0.targets[ti])+' · 멤버별 점수</h2><div style="flex:1"></div>'+
     '<button class="sm ghost" data-act="closemodal">닫기</button></div>'+
-    '<p class="tiny muted" style="margin-top:6px">괄호 안은 입력값(0~100), 앞의 숫자는 배점 환산 점수입니다.</p>'+
+    '<p class="tiny muted" style="margin-top:6px">각 항목은 그 항목의 배점 범위 안에서 매겨진 점수입니다.</p>'+
     '<div class="tablewrap" style="margin-top:8px"><table><thead><tr><th>멤버</th>'+
     crits.map(c=>'<th class="num"'+(c.desc?' title="'+esc(c.desc)+'"':"")+'>'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
     '<th class="num">개인 총점</th></tr></thead><tbody>';
@@ -1595,11 +1597,11 @@ function modalHTML(){
     }
     const row=obj(obj(scoresOf()[mid].v)[ti]);
     let earned=0,maxSum=0;
-    crits.forEach((c,ci)=>{ const v=row[ci]; if(typeof v==="number"){ earned+=v/100*(Number(c.max)||0); maxSum+=Number(c.max)||0; } });
+    crits.forEach((c,ci)=>{ const v=row[ci]; if(typeof v==="number"){ earned+=v; maxSum+=Number(c.max)||0; } });
     h+='<tr><td>'+esc(nameOf(mid))+'</td>'+crits.map((c,ci)=>{
       const v=row[ci];
       if(v==="skip") return '<td class="num muted">스킵</td>';
-      if(typeof v==="number") return '<td class="num">'+num(v/100*(Number(c.max)||0),2)+' <span class="tiny muted">('+num(v,1)+')</span></td>';
+      if(typeof v==="number") return '<td class="num">'+num(v,2)+'</td>';
       return '<td class="num muted">–</td>';
     }).join("")+'<td class="num">'+(maxSum>0?num(earned/maxSum*full,2):"–")+'</td></tr>';
   });
