@@ -147,29 +147,34 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .gradeCardInner.flipped{transform:rotateY(180deg)}
 .gradeFace{position:absolute;inset:0;backface-visibility:hidden;border-radius:16px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
-  padding:20px 14px;box-shadow:0 10px 28px rgba(0,0,0,.4);overflow-y:auto}
+  padding:20px 14px;box-shadow:0 10px 28px rgba(0,0,0,.4);overflow:hidden}
 .gradeFace.back{background:linear-gradient(150deg,#30333c,#1a1c22);color:#fff}
 .gradeFace.back .backmark{font-size:44px;opacity:.45}
 .gradeFace.front{background:#fff;color:#1c1e24;transform:rotateY(180deg);
   border:4px solid var(--tier-color,#ccc);animation:gradeGlow 2s ease-in-out infinite}
 .gradeFace .gbadge{display:inline-block;border-radius:999px;
-  padding:6px 22px;font-size:26px;font-weight:800;letter-spacing:.02em;margin-bottom:16px}
+  padding:calc(6px*var(--fscale,1)) calc(22px*var(--fscale,1));font-size:calc(26px*var(--fscale,1));
+  font-weight:800;letter-spacing:.02em;margin-bottom:calc(16px*var(--fscale,1))}
 .gradeFace.front .gbadge{color:var(--tier-color,#333);background:rgba(0,0,0,.06);
   animation:textGlow 2s ease-in-out infinite}
-.gradeFace h3{margin:0 0 10px;font-size:38px;overflow-wrap:anywhere}
-.gradeFace .gcut{font-size:30px;opacity:.85;font-weight:600}
-.gperlist{margin-top:16px;width:100%;display:flex;flex-direction:column;gap:4px;font-size:23px}
-.gperitem{display:flex;justify-content:space-between;gap:8px;padding:5px 4px;border-top:1px solid rgba(0,0,0,.08)}
+.gradeFace h3{margin:0 0 calc(10px*var(--fscale,1));font-size:calc(38px*var(--fscale,1));overflow-wrap:anywhere}
+.gradeFace .gcut{font-size:calc(30px*var(--fscale,1));opacity:.85;font-weight:600}
+.gperlist{margin-top:calc(16px*var(--fscale,1));width:100%;display:flex;flex-direction:column;
+  gap:calc(4px*var(--fscale,1));font-size:calc(23px*var(--fscale,1))}
+.gperitem{display:flex;justify-content:space-between;gap:8px;padding:calc(5px*var(--fscale,1)) 4px;
+  border-top:1px solid rgba(0,0,0,.08)}
 .gperitem:first-child{border-top:none}
 .gpn{opacity:.62;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%}
+.gpmax{opacity:1;color:#9aa0a8;font-weight:400;font-size:.72em;margin-left:3px}
 .gpv{font-weight:700;font-variant-numeric:tabular-nums}
-.gscore{color:#d4af37;font-weight:800}
-.grank{font-weight:700}
+.gnum{font-weight:800}
+.rank-gold{color:#e0b32a}
+.rank-silver{color:#9aa2b0}
 .rank-purple{color:#9256d9}
-.rank-blue{color:#2196f3}
+.rank-blue{color:#2f8fd9}
 .rank-rainbow{background:linear-gradient(90deg,#ff5ea8,#ffb347,#fff066,#6bffb8,#5ec8ff,#a26bff,#ff5ea8);
   background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
-  animation:rainbowShift 3s linear infinite}
+  animation:rainbowShift 3s linear infinite, rainbowGlow 3s linear infinite}
 @keyframes gradeShine{ 0%{background-position:-160% 0;} 100%{background-position:260% 0;} }
 @keyframes textGlow{
   0%,100%{ text-shadow:0 0 0 transparent; }
@@ -180,6 +185,15 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
   50%{box-shadow:0 10px 28px rgba(0,0,0,.4),0 0 26px 6px var(--glow-color,rgba(255,255,255,.5));}
 }
 @keyframes rainbowShift{ 0%{background-position:0% 50%;} 100%{background-position:200% 50%;} }
+@keyframes rainbowGlow{
+  0%{text-shadow:0 0 8px rgba(255,94,168,.85)}
+  16%{text-shadow:0 0 8px rgba(255,179,71,.85)}
+  33%{text-shadow:0 0 8px rgba(255,240,102,.85)}
+  50%{text-shadow:0 0 8px rgba(107,255,184,.85)}
+  66%{text-shadow:0 0 8px rgba(94,200,255,.85)}
+  83%{text-shadow:0 0 8px rgba(162,107,255,.85)}
+  100%{text-shadow:0 0 8px rgba(255,94,168,.85)}
+}
 @keyframes confettiFall{
   0%{transform:translateY(-16px) rotate(0deg);opacity:1;}
   100%{transform:translateY(340px) rotate(420deg);opacity:0;}
@@ -524,7 +538,9 @@ function buildGrades(rows){
    총점/항목 점수가 없는(null) 대상은 순위 계산에서 빠지고 rank/critRank도 없음(undefined)으로 남는다. */
 function rankColorClass(rank){
   if(rank===null || rank===undefined) return "";
-  if(rank<=10) return "rank-rainbow";
+  if(rank<=3) return "rank-rainbow";
+  if(rank<=5) return "rank-gold";
+  if(rank<=10) return "rank-silver";
   if(rank<=30) return "rank-purple";
   if(rank<=50) return "rank-blue";
   return "";
@@ -1514,27 +1530,26 @@ async function playGradeReveal(g, opts){
     back.innerHTML="<div class='backmark'>?</div>";
     const front=document.createElement("div");
     front.className="gradeFace front tier-"+item.tier;
+    const nCrit=(g.criteria?g.criteria.length:0);
+    const fscale=nCrit<=3 ? 1 : Math.max(0.5, 1-(nCrit-3)*0.07);
+    front.style.setProperty("--fscale", fscale.toFixed(3));
     let perHTML="";
     if(item.per && g.criteria && g.criteria.length){
-      const nCrit=g.criteria.length;
-      const perFontSize=Math.max(9, Math.min(23, 23-(nCrit-3)*1.7));
-      const perPad=Math.max(2, Math.min(5, 5-(nCrit-3)*0.35));
-      const perGap=Math.max(1, Math.min(4, 4-(nCrit-3)*0.3));
-      perHTML="<div class='gperlist' style='font-size:"+perFontSize.toFixed(1)+"px;gap:"+perGap.toFixed(1)+"px'>"+g.criteria.map((c,ci)=>{
+      perHTML="<div class='gperlist'>"+g.criteria.map((c,ci)=>{
         const p=item.per[ci];
         const val=(p && p.pts!==null && p.pts!==undefined) ? num(p.pts,2) : "–";
         const critRank=(item.critRank && item.critRank[ci]!==undefined) ? item.critRank[ci] : null;
         const rk=(critRank!==null) ? critRank+"위" : "–";
         const rkCls=rankColorClass(critRank);
-        return "<div class='gperitem' style='padding:"+perPad.toFixed(1)+"px 4px'><span class='gpn'>"+esc(c.name)+"</span>"+
-          "<span class='gpv'><span class='gscore'>"+val+"점</span> (<span class='grank "+rkCls+"'>"+rk+"</span>)</span></div>";
+        return "<div class='gperitem'><span class='gpn'>"+esc(c.name)+"<span class='gpmax'>("+num(c.max,0)+")</span></span>"+
+          "<span class='gpv gnum "+rkCls+"'>"+val+"점 ("+rk+")</span></div>";
       }).join("")+"</div>";
     }
     const rankTxt=(item.rank!==null && item.rank!==undefined) ? item.rank+"위" : "–";
     const rankCls=rankColorClass(item.rank);
     front.innerHTML="<div class='gbadge'>"+(item.special?"✨ ":"")+esc(item.gradeName)+"</div>"+
       "<h3>"+esc(item.name)+"</h3>"+
-      "<div class='gcut'>Tot. <span class='gscore'>"+num(item.total,2)+"점</span> (<span class='grank "+rankCls+"'>"+rankTxt+"</span>)</div>"+perHTML;
+      "<div class='gcut'>Tot. <span class='gnum "+rankCls+"'>"+num(item.total,2)+"점 ("+rankTxt+")</span></div>"+perHTML;
     inner.appendChild(back); inner.appendChild(front);
     wrap.appendChild(inner);
     stage.appendChild(wrap);
