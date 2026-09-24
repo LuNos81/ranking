@@ -163,6 +163,13 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .gperitem:first-child{border-top:none}
 .gpn{opacity:.62;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%}
 .gpv{font-weight:700;font-variant-numeric:tabular-nums}
+.gscore{color:#d4af37;font-weight:800}
+.grank{font-weight:700}
+.rank-purple{color:#9256d9}
+.rank-blue{color:#2196f3}
+.rank-rainbow{background:linear-gradient(90deg,#ff5ea8,#ffb347,#fff066,#6bffb8,#5ec8ff,#a26bff,#ff5ea8);
+  background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:rainbowShift 3s linear infinite}
 @keyframes gradeShine{ 0%{background-position:-160% 0;} 100%{background-position:260% 0;} }
 @keyframes textGlow{
   0%,100%{ text-shadow:0 0 0 transparent; }
@@ -515,6 +522,13 @@ function buildGrades(rows){
 }
 /* rows(각 {ti,name,total,per})에 전체 순위(rank)와 항목별 순위(critRank)를 계산해 붙인다.
    총점/항목 점수가 없는(null) 대상은 순위 계산에서 빠지고 rank/critRank도 없음(undefined)으로 남는다. */
+function rankColorClass(rank){
+  if(rank===null || rank===undefined) return "";
+  if(rank<=10) return "rank-rainbow";
+  if(rank<=30) return "rank-purple";
+  if(rank<=50) return "rank-blue";
+  return "";
+}
 function attachRanks(rows, numCriteria){
   const validForRank=rows.filter(r=>r.total!==null && r.total!==undefined).slice().sort((a,b)=>b.total-a.total);
   const rankMap={};
@@ -536,12 +550,7 @@ function computeGrades(){
 }
 /* 연출 테스트용: 항목별 점수까지 갖춘, 완성된(전부 채점된 것으로 취급) 임의의 데이터 n개를 만들어낸다.
    난수 4개의 평균을 쓰는 방식이라 각 항목 배점 안에서 고르게 몰리는(종형에 가까운) 점수가 나온다. */
-function genTestData(n){
-  const criteria=[
-    { name:"창의성", max:40, desc:"" },
-    { name:"완성도", max:30, desc:"" },
-    { name:"발표력", max:30, desc:"" }
-  ];
+function genTestDataWith(criteria, n){
   const maxTotal=100, maxSum=criteria.reduce((a,c)=>a+c.max,0);
   const rows=[];
   for(let i=0;i<n;i++){
@@ -557,6 +566,22 @@ function genTestData(n){
   }
   attachRanks(rows, criteria.length);
   return { criteria, maxTotal, rows };
+}
+function genTestData(n){
+  return genTestDataWith([
+    { name:"창의성", max:40, desc:"" },
+    { name:"완성도", max:30, desc:"" },
+    { name:"발표력", max:30, desc:"" }
+  ], n);
+}
+function genTestData5(n){
+  return genTestDataWith([
+    { name:"창의성", max:20, desc:"" },
+    { name:"완성도", max:20, desc:"" },
+    { name:"발표력", max:20, desc:"" },
+    { name:"협업", max:20, desc:"" },
+    { name:"실용성", max:20, desc:"" }
+  ], n);
 }
 
 /* ───────── 방장 자동 진행 ───────── */
@@ -954,7 +979,8 @@ function viewLobby(){
   '<div class="card"><h2>등급 발표 연출 테스트</h2>'+
   '<p class="small muted">실제 방이 없어도 임의로 완성된 100개짜리 가짜 데이터로 등급 발표 연출을 미리 볼 수 있습니다.</p>'+
   '<label class="row tight" style="font-size:13px;margin-bottom:10px"><input type="checkbox" id="testBulkToggle"> 범급 미만 등급(송급~배급)은 한번에 모아서 발표</label>'+
-  '<button data-act="testgrades">테스트 데이터로 미리보기 (100개)</button></div>'+
+  '<button data-act="testgrades">테스트 데이터로 미리보기 (100개)</button>'+
+  '<button data-act="testgrades" data-crit="5" style="margin-left:8px">항목 5개 테스트 미리보기 (30개)</button></div>'+
   '<div class="card small muted"><h3>txt 파일 형식</h3><div class="grid2">'+
     '<div><div class="tiny">① 대상 목록 (한 줄에 하나)</div><pre class="fmt">1번 참가자\n2번 참가자\n3번 참가자</pre></div>'+
     '<div><div class="tiny">② 만점 + 항목별 배점(+설명)</div><pre class="fmt">200\n창의성 50 얼마나 새로운 아이디어인지\n완성도 25\n전달력 125 발표 태도와 전달력</pre></div>'+
@@ -1490,17 +1516,25 @@ async function playGradeReveal(g, opts){
     front.className="gradeFace front tier-"+item.tier;
     let perHTML="";
     if(item.per && g.criteria && g.criteria.length){
-      perHTML="<div class='gperlist'>"+g.criteria.map((c,ci)=>{
+      const nCrit=g.criteria.length;
+      const perFontSize=Math.max(9, Math.min(23, 23-(nCrit-3)*1.7));
+      const perPad=Math.max(2, Math.min(5, 5-(nCrit-3)*0.35));
+      const perGap=Math.max(1, Math.min(4, 4-(nCrit-3)*0.3));
+      perHTML="<div class='gperlist' style='font-size:"+perFontSize.toFixed(1)+"px;gap:"+perGap.toFixed(1)+"px'>"+g.criteria.map((c,ci)=>{
         const p=item.per[ci];
         const val=(p && p.pts!==null && p.pts!==undefined) ? num(p.pts,2) : "–";
-        const rk=(item.critRank && item.critRank[ci]!==undefined) ? item.critRank[ci]+"위" : "–";
-        return "<div class='gperitem'><span class='gpn'>"+esc(c.name)+"</span><span class='gpv'>"+val+"점 ("+rk+")</span></div>";
+        const critRank=(item.critRank && item.critRank[ci]!==undefined) ? item.critRank[ci] : null;
+        const rk=(critRank!==null) ? critRank+"위" : "–";
+        const rkCls=rankColorClass(critRank);
+        return "<div class='gperitem' style='padding:"+perPad.toFixed(1)+"px 4px'><span class='gpn'>"+esc(c.name)+"</span>"+
+          "<span class='gpv'><span class='gscore'>"+val+"점</span> (<span class='grank "+rkCls+"'>"+rk+"</span>)</span></div>";
       }).join("")+"</div>";
     }
     const rankTxt=(item.rank!==null && item.rank!==undefined) ? item.rank+"위" : "–";
+    const rankCls=rankColorClass(item.rank);
     front.innerHTML="<div class='gbadge'>"+(item.special?"✨ ":"")+esc(item.gradeName)+"</div>"+
       "<h3>"+esc(item.name)+"</h3>"+
-      "<div class='gcut'>Tot. "+num(item.total,2)+"점 ("+rankTxt+")</div>"+perHTML;
+      "<div class='gcut'>Tot. <span class='gscore'>"+num(item.total,2)+"점</span> (<span class='grank "+rankCls+"'>"+rankTxt+"</span>)</div>"+perHTML;
     inner.appendChild(back); inner.appendChild(front);
     wrap.appendChild(inner);
     stage.appendChild(wrap);
@@ -1830,7 +1864,7 @@ async function handle(act,d){
     else if(act==="testgrades"){
       const cbId=d.testcb||"testBulkToggle";
       const bulkLow=!!(($("#"+cbId)||{}).checked);
-      const td=genTestData(100);
+      const td=(d.crit==="5") ? genTestData5(30) : genTestData(100);
       const g=buildGrades(td.rows);
       g.criteria=td.criteria;
       playGradeReveal(g, {bulkLowTiers:bulkLow});
