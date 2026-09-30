@@ -299,7 +299,8 @@ const S = {
   unsub:[], screen:"lobby",
   draft:null, draftFor:null, skip:{}, draftVal:{},
   pending:null, err:"", banner:"", modal:null, lastSig:"",
-  single:null, resultSort:{key:null,dir:"desc"}, resultSearch:"", resultOrder:"rank"
+  single:null, resultSort:{key:null,dir:"desc"}, resultSearch:"", resultOrder:"rank",
+  testUnlocked:false
 };
 
 /* ───────── boot ───────── */
@@ -478,6 +479,53 @@ function judgeTotalsFrom(criteria, maxTotal, scoresObj, ids, ti){
 }
 function judgeTotalsForTarget(ti){
   return judgeTotalsFrom(S.room.criteria, S.room.maxTotal, scoresOf(), allScorerIds(), ti);
+}
+/* judgeTotalsFrom과 같은 계산이지만, 누가(mid/name) 그 점수를 줬는지도 함께 반환한다.
+   (결과창에서 대상별 최고점·최저점을 준 사람을 표시하는 데 사용) */
+function judgeDetailsForTarget(ti){
+  const R0=S.room, full=Number(R0.maxTotal)||100, criteria=R0.criteria, scoresObj=scoresOf();
+  const list=[];
+  allScorerIds().forEach(mid=>{
+    const sc=scoresObj[mid];
+    if(!sc || !obj(sc.done)[ti]) return;
+    const row=obj(obj(sc.v)[ti]);
+    let earned=0, maxSum=0;
+    criteria.forEach((c,ci)=>{
+      const v=row[ci];
+      if(typeof v==="number" && isFinite(v)){ earned+=v; maxSum+=Number(c.max)||0; }
+    });
+    if(maxSum>0) list.push({ mid, name: sc.name||"이름없음", total: earned/maxSum*full });
+  });
+  return list;
+}
+/* 대상 ti의 종합 점수(총점)를, 특정 채점자 한 명을 제외한 나머지로 다시 계산한 값.
+   (현재 방의 채점 방식(trim 여부)을 그대로 따른다) */
+function targetTotalWithout(ti, excludeMid){
+  const R0=S.room;
+  const ids=allScorerIds().filter(id=>id!==excludeMid);
+  return aggregateFrom([R0.targets[ti]], R0.criteria, R0.maxTotal, scoresOf(), ids, !!R0.trim)[0].total;
+}
+/* 대상 ti에서 최고점/최저점을 준 사람과, 그 사람을 뺀 평균과 종합 점수의 차이를 계산.
+   채점자가 2명 미만이거나 최고=최저(구분 불가)면 null. */
+function extremeInfoForTarget(ti, total){
+  const list=judgeDetailsForTarget(ti);
+  if(list.length<2) return null;
+  let maxI=0, minI=0;
+  list.forEach((d,i)=>{ if(d.total>list[maxI].total) maxI=i; if(d.total<list[minI].total) minI=i; });
+  if(list[maxI].total===list[minI].total) return null;
+  const maxWithout=targetTotalWithout(ti, list[maxI].mid);
+  const minWithout=targetTotalWithout(ti, list[minI].mid);
+  return {
+    max:{ name:list[maxI].name, score:list[maxI].total,
+      diff:(total!==null && maxWithout!==null) ? total-maxWithout : null },
+    min:{ name:list[minI].name, score:list[minI].total,
+      diff:(total!==null && minWithout!==null) ? total-minWithout : null }
+  };
+}
+function fmtSigned(n,d){
+  d=d===undefined?1:d;
+  const v=Math.round(n*Math.pow(10,d))/Math.pow(10,d);
+  return (v>0?"+":"")+num(v,d);
 }
 /* 모집단 표준편차. 값이 2개 미만이면 의미가 없으므로 null. */
 function stddev(arr){
@@ -1121,10 +1169,15 @@ function viewLobby(){
     '<button data-act="singlecollect">결과 파일 모아서 계산</button>'+
   '</div></div>'+
   '<div class="card"><h2>등급 발표 연출 테스트</h2>'+
-  '<p class="small muted">실제 방이 없어도 임의로 완성된 100개짜리 가짜 데이터로 등급 발표 연출을 미리 볼 수 있습니다.</p>'+
-  '<label class="row tight" style="font-size:13px;margin-bottom:10px"><input type="checkbox" id="testBulkToggle"> 범급 미만 등급(송급~배급)은 한번에 모아서 발표</label>'+
-  '<button data-act="testgrades">테스트 데이터로 미리보기 (100개)</button>'+
-  '<button data-act="testgrades" data-crit="5" style="margin-left:8px">항목 5개 테스트 미리보기 (30개)</button></div>'+
+  (S.testUnlocked
+    ? ('<p class="small muted">실제 방이 없어도 임의로 완성된 100개짜리 가짜 데이터로 등급 발표 연출을 미리 볼 수 있습니다.</p>'+
+       '<label class="row tight" style="font-size:13px;margin-bottom:10px"><input type="checkbox" id="testBulkToggle"> 범급 미만 등급(송급~배급)은 한번에 모아서 발표</label>'+
+       '<button data-act="testgrades">테스트 데이터로 미리보기 (100개)</button>'+
+       '<button data-act="testgrades" data-crit="5" style="margin-left:8px">항목 5개 테스트 미리보기 (30개)</button>')
+    : ('<p class="small muted">관리자 코드를 입력하면 테스트 미리보기 기능을 사용할 수 있습니다.</p>'+
+       '<div class="row tight"><input type="password" id="testAdminCode" placeholder="관리자 코드" style="max-width:160px">'+
+       '<button data-act="testunlock">확인</button></div>')
+  )+'</div>'+
   '<div class="card small muted"><h3>txt 파일 형식</h3><div class="grid2">'+
     '<div><div class="tiny">① 대상 목록 (한 줄에 하나)</div><pre class="fmt">1번 참가자\n2번 참가자\n3번 참가자</pre></div>'+
     '<div><div class="tiny">② 만점 + 항목별 배점(+설명)</div><pre class="fmt">200\n창의성 50 얼마나 새로운 아이디어인지\n완성도 25\n전달력 125 발표 태도와 전달력</pre></div>'+
@@ -1697,6 +1750,20 @@ function sortArrow(key){
   if(!S.resultSort || S.resultSort.key!==key) return "";
   return S.resultSort.dir==="asc"?" ▲":" ▼";
 }
+/* 대상별 최고점/최저점을 준 사람 + 그 사람을 뺀 평균과의 차이를 작은 텍스트로 표시.
+   차이가 ±10점 이상이면 빨간색으로 강조. */
+function extremeRowHTML(extreme){
+  if(!extreme) return '<div class="tiny muted">채점자가 2명 미만이라 최고/최저 채점자를 구분할 수 없습니다.</div>';
+  const part=(label,arrow,info)=>{
+    const strong = info.diff!==null && Math.abs(info.diff)>=10;
+    const diffHTML = info.diff===null ? "" :
+      ' <span style="'+(strong?"color:#e5484d;font-weight:700":"color:var(--muted)")+'">('+fmtSigned(info.diff)+')</span>';
+    return '<span>'+arrow+' '+label+' <b>'+esc(info.name)+'</b> '+num(info.score,2)+'점'+diffHTML+'</span>';
+  };
+  return '<div class="tiny" style="display:flex;gap:18px;flex-wrap:wrap;color:var(--muted)">'+
+    part("최고점","▲",extreme.max)+part("최저점","▼",extreme.min)+
+    '</div>';
+}
 function viewResults(){
   const R0=S.room, crits=R0.criteria, rows=aggregate(), trimOn=!!R0.trim;
   const order=S.resultOrder||"rank";
@@ -1717,7 +1784,8 @@ function viewResults(){
   let display=rows.map((r,ti)=>{
     const totals=judgeTotalsForTarget(ti);
     return { ti, name:r.name, per:r.per, total:r.total,
-      stdAll:stddev(totals), stdTrim:stddev(trimExtremes(totals)) };
+      stdAll:stddev(totals), stdTrim:stddev(trimExtremes(totals)),
+      extreme: extremeInfoForTarget(ti, r.total) };
   });
   if(order==="rank"){
     display=display.slice().sort((a,b)=>{
@@ -1739,13 +1807,19 @@ function viewResults(){
     });
   }
 
-  h+='<p class="tiny muted" style="margin-bottom:8px">각 항목은 배점으로 환산된 점수이며 총점은 그 합입니다(스킵 항목은 제외 후 만점 기준 환산). '+
-     (trimOn?'표준편차는 채점자 개인 총점 기준으로 최고·최저 1명씩 제외한 값과 전체 값을 함께 보여줍니다.':'표준편차는 채점자 개인 총점(만점 기준 환산) 간의 편차입니다.')+' (만점 '+esc(R0.maxTotal)+'점)</p>';
+  h+='<div class="card" style="margin-bottom:10px"><h3 style="margin-top:0">채점 방식</h3><div class="seg sm">'+
+     '<button data-act="trim" data-trim="0" class="'+(!trimOn?"on":"")+'"'+(isHost()?"":" disabled")+'>전체 평균</button>'+
+     '<button data-act="trim" data-trim="1" class="'+(trimOn?"on":"")+'"'+(isHost()?"":" disabled")+'>최고·최저 제외 평균</button></div>'+
+     '<p class="tiny muted" style="margin-top:8px">'+(trimOn
+       ?"각 항목마다 가장 높은 점수 1개와 가장 낮은 점수 1개를 뺀 나머지로 평균을 냅니다(채점자 3명 이상인 항목에만 적용). 방장이 바꾸면 모든 참가자에게 즉시 반영되며, 언제든 다시 바꿀 수 있습니다."
+       :"모든 채점자의 점수를 그대로 평균 냅니다. 방장이 바꾸면 모든 참가자에게 즉시 반영되며, 언제든 다시 바꿀 수 있습니다.")+'</p></div>';
+
   h+='<div class="row" style="margin-bottom:10px"><input type="text" id="resultSearch" placeholder="대상 검색" '+
      'style="max-width:240px" value="'+esc(S.resultSearch||"")+'"></div>';
 
+  const colCount = 3 + crits.length + (trimOn?2:1);
   h+='<div class="tablewrap"><table><thead><tr><th>대상</th>'+
-     crits.map(c=>'<th class="num"'+(c.desc?' title="'+esc(c.desc)+'"':"")+'>'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
+     crits.map(c=>'<th class="num" style="color:var(--fg)"'+(c.desc?' title="'+esc(c.desc)+'"':"")+'>'+esc(c.name)+'<div class="tiny muted">/'+c.max+'점</div></th>').join("")+
      '<th class="num sortable" data-act="sortresult" data-key="total">총점'+sortArrow("total")+'<div class="tiny muted">/'+esc(R0.maxTotal)+'점</div></th>'+
      (trimOn
        ?'<th class="num sortable" data-act="sortresult" data-key="stdTrim">표준편차(제외)'+sortArrow("stdTrim")+'</th>'+
@@ -1754,7 +1828,8 @@ function viewResults(){
      '<th></th></tr></thead><tbody id="resultTbody">';
   display.forEach(r=>{
     const hide=q && !r.name.toLowerCase().includes(q);
-    h+='<tr data-tname="'+esc(r.name)+'"'+(hide?' style="display:none"':"")+'><td><b>'+esc(r.name)+'</b></td>'+
+    const hideAttr=hide?' style="display:none"':"";
+    h+='<tr data-tname="'+esc(r.name)+'"'+hideAttr+'><td><b>'+esc(r.name)+'</b></td>'+
        r.per.map(p=>'<td class="num">'+(p.pts===null?'<span class="muted">–</span>':num(p.pts,2))+'</td>').join("")+
        '<td class="num"><b>'+(r.total===null?"–":num(r.total,2))+'</b></td>'+
        (trimOn
@@ -1762,6 +1837,8 @@ function viewResults(){
           '<td class="num">'+(r.stdAll===null?'<span class="muted">–</span>':num(r.stdAll,2))+'</td>'
          :'<td class="num">'+(r.stdAll===null?'<span class="muted">–</span>':num(r.stdAll,2))+'</td>')+
        '<td><button class="sm" data-act="detail" data-ti="'+r.ti+'">자세히 보기</button></td></tr>';
+    h+='<tr data-tname="'+esc(r.name)+'"'+hideAttr+'><td colspan="'+colCount+'" style="padding:2px 8px 12px;white-space:normal">'+
+       extremeRowHTML(r.extreme)+'</td></tr>';
   });
   h+='</tbody></table></div>';
 
@@ -1769,9 +1846,7 @@ function viewResults(){
   if(!R0.gradesRevealed){
     h+= isHost()
       ? '<label class="row tight" style="font-size:13px"><input type="checkbox" id="bulkLowToggle"> 범급 미만 등급(송급~배급)은 한번에 모아서 발표</label>'+
-        '<div class="row" style="margin-top:8px"><button class="primary sm" data-act="revealgrades">등급 발표</button>'+
-        '<button class="sm ghost" data-act="testgrades" data-testcb="bulkLowToggle">연출 미리보기(테스트 데이터)</button></div>'+
-        '<p class="tiny muted" style="margin-top:8px">‘등급 발표’를 누르면 실제 이 방의 결과로 모든 참가자 화면에 함께 공개됩니다. ‘연출 미리보기’는 나에게만 보이는 가짜 데이터 테스트이며, 위 체크박스 설정을 그대로 써서 미리 봅니다.</p>'
+        '<div class="row" style="margin-top:8px"><button class="primary sm" data-act="revealgrades">등급 발표</button></div>'
       : '<p class="small muted">방장이 등급을 발표하면 여기에 표시됩니다.</p>';
   }else{
     h+=gradesTableHTML();
@@ -1816,12 +1891,8 @@ function settingsModalHTML(){
      '<button data-act="order" data-order="seq" class="'+(R0.order!=="random"?"on":"")+'"'+(host?"":" disabled")+'>순서대로</button>'+
      '<button data-act="order" data-order="random" class="'+(R0.order==="random"?"on":"")+'"'+(host?"":" disabled")+'>무작위</button></div></div>';
 
-  h+='<div style="margin-top:18px"><h3>채점 방식</h3><div class="seg">'+
-     '<button data-act="trim" data-trim="0" class="'+(!R0.trim?"on":"")+'"'+(host?"":" disabled")+'>전체 평균</button>'+
-     '<button data-act="trim" data-trim="1" class="'+(R0.trim?"on":"")+'"'+(host?"":" disabled")+'>최고·최저 제외 평균</button></div>'+
-     '<p class="small muted" style="margin-top:8px">'+(R0.trim
-       ?"각 항목마다 가장 높은 점수 1개와 가장 낮은 점수 1개를 뺀 나머지로 평균을 냅니다(채점자 3명 이상인 항목에만 적용)."
-       :"모든 채점자의 점수를 그대로 평균 냅니다.")+'</p></div>';
+  h+='<div style="margin-top:18px"><h3>채점 방식</h3>'+
+     '<p class="small muted">채점이 끝난 뒤 결과 화면에서 방장이 정합니다(언제든 다시 바꿀 수 있습니다).</p></div>';
 
   h+='</div></div>';
   return h;
@@ -2059,6 +2130,12 @@ async function handle(act,d){
       if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);}
       const bulkLow=!!(($("#bulkLowToggle")||{}).checked);
       await update(R(Proom(S.code)),{gradesRevealed:true, gradeAdvance:0, gradeSkipAll:false, gradeSkipEnabled:true, gradeBulkLowTiers:bulkLow});
+    }
+    else if(act==="testunlock"){
+      const v=(($("#testAdminCode")||{}).value||"");
+      if(v==="TestTest"){ S.testUnlocked=true; S.err=""; }
+      else{ S.err="관리자 코드가 올바르지 않습니다."; }
+      render(true);
     }
     else if(act==="testgrades"){
       const cbId=d.testcb||"testBulkToggle";
