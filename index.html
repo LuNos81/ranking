@@ -69,7 +69,7 @@ th.sortable{cursor:pointer;user-select:none}
 th.sortable:hover{color:var(--accent)}
 .crit{display:grid;grid-template-columns:1fr 120px auto;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}
 .crit:last-child{border-bottom:none}
-.crit .nm{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.crit .nm{font-weight:600;min-width:0;overflow-wrap:anywhere;font-size:17px}
 .crit .dsc{font-size:12.5px;color:var(--muted);font-weight:400;margin-top:2px;overflow-wrap:anywhere}
 .crit .w{font-size:12px;color:var(--muted);font-weight:500}
 .crit.skipped .nm,.crit.skipped input{opacity:.4}
@@ -91,6 +91,8 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:none;border-radius:0;background:transparent}
 .seg button.on{background:var(--accent);color:var(--accent-fg)}
+.seg.sm button{padding:5px 10px;font-size:12.5px}
+#pageTitle.big{font-size:26px}
 .setupgrid,.scoregrid{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
 .scoregrid{grid-template-columns:1.6fr 1.1fr}
 @media (max-width:760px){.setupgrid,.scoregrid{grid-template-columns:1fr}}
@@ -249,7 +251,7 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 <body>
 <div class="wrap">
   <header class="top">
-    <h1>실시간 점수 매기기</h1>
+    <h1 id="pageTitle">실시간 점수 매기기</h1>
     <div class="spacer"></div>
     <div id="hdr" class="small muted"></div>
   </header>
@@ -297,7 +299,7 @@ const S = {
   unsub:[], screen:"lobby",
   draft:null, draftFor:null, skip:{}, draftVal:{},
   pending:null, err:"", banner:"", modal:null, lastSig:"",
-  single:null, resultSort:{key:null,dir:"desc"}, resultSearch:""
+  single:null, resultSort:{key:null,dir:"desc"}, resultSearch:"", resultOrder:"rank"
 };
 
 /* ───────── boot ───────── */
@@ -694,6 +696,127 @@ function magicParse(raw){
   return null;
 }
 
+/* ───────── 수식 계산기 (sqrt/log/ln/^ 등) ─────────
+   점수칸에 sqrt(x), log(x)(상용로그), ln(x)(자연로그), ^(지수, 실수 지수 허용), 사칙연산,
+   괄호, 암시적 곱셈(예: 9sqrt(9) = 9*sqrt(9))을 지원하는 아주 작은 수식 파서/계산기.
+   유효하지 않은 문법이거나 결과가 실수가 아니면(허수, NaN, 무한대) null을 돌려주어
+   호출부가 '아직 미완성이거나 잘못된 입력'으로 취급하게 한다(절대 조용히 통과시키지 않음). */
+function tokenizeMathExpr(s){
+  const toks=[]; let i=0;
+  while(i<s.length){
+    const c=s[i];
+    if(/\s/.test(c)){ i++; continue; }
+    if(/[0-9.]/.test(c)){
+      let j=i; while(j<s.length && /[0-9.]/.test(s[j])) j++;
+      const numStr=s.slice(i,j);
+      if(!/^\d*\.?\d*$/.test(numStr) || numStr===""||numStr===".") throw new Error("bad number");
+      if((numStr.match(/\./g)||[]).length>1) throw new Error("bad number");
+      toks.push({t:"num", v:parseFloat(numStr)}); i=j; continue;
+    }
+    if(/[a-zA-Z]/.test(c)){
+      let j=i; while(j<s.length && /[a-zA-Z]/.test(s[j])) j++;
+      toks.push({t:"ident", v:s.slice(i,j).toLowerCase()}); i=j; continue;
+    }
+    if("+-*/^()".indexOf(c)>=0){ toks.push({t:c}); i++; continue; }
+    throw new Error("bad char");
+  }
+  return toks;
+}
+function parseMathTokens(toks){
+  let pos=0;
+  const peek=()=>toks[pos];
+  const next=()=>toks[pos++];
+  const atomStart=()=>{ const tk=peek(); return !!tk && (tk.t==="num"||tk.t==="ident"||tk.t==="("); };
+  function parseExpr(){
+    let v=parseTerm();
+    while(peek() && (peek().t==="+"||peek().t==="-")){
+      const op=next().t; const rhs=parseTerm();
+      v = op==="+" ? v+rhs : v-rhs;
+    }
+    return v;
+  }
+  function parseTerm(){
+    let v=parsePow();
+    while(peek() && (peek().t==="*"||peek().t==="/"||atomStart())){
+      if(peek().t==="*"||peek().t==="/"){
+        const op=next().t; const rhs=parsePow();
+        v = op==="*" ? v*rhs : v/rhs;
+      }else{
+        const rhs=parsePow();
+        v = v*rhs;
+      }
+    }
+    return v;
+  }
+  function parsePow(){
+    const base=parseUnary();
+    if(peek() && peek().t==="^"){
+      next();
+      const exp=parsePow();
+      return Math.pow(base, exp);
+    }
+    return base;
+  }
+  function parseUnary(){
+    if(peek() && peek().t==="-"){ next(); return -parseUnary(); }
+    if(peek() && peek().t==="+"){ next(); return parseUnary(); }
+    return parseAtom();
+  }
+  function parseAtom(){
+    const tk=peek();
+    if(!tk) throw new Error("unexpected end");
+    if(tk.t==="num"){ next(); return tk.v; }
+    if(tk.t==="("){
+      next(); const v=parseExpr();
+      if(!peek()||peek().t!==")") throw new Error("missing )");
+      next(); return v;
+    }
+    if(tk.t==="ident"){
+      const name=tk.v; next();
+      if(name==="pi") return Math.PI;
+      if(name==="e") return Math.E;
+      if(name==="sqrt"||name==="log"||name==="ln"){
+        if(!peek()||peek().t!=="(") throw new Error("expected (");
+        next();
+        const arg=parseExpr();
+        if(!peek()||peek().t!==")") throw new Error("missing )");
+        next();
+        if(name==="sqrt"){ if(arg<0) throw new Error("domain"); return Math.sqrt(arg); }
+        if(name==="log"){ if(arg<=0) throw new Error("domain"); return Math.log10(arg); }
+        return Math.log(arg); /* ln */
+      }
+      throw new Error("unknown ident");
+    }
+    throw new Error("unexpected token");
+  }
+  if(!toks.length) throw new Error("empty");
+  const result=parseExpr();
+  if(pos!==toks.length) throw new Error("trailing tokens");
+  return result;
+}
+/* raw 문자열을 계산해 유한 실수를 돌려주거나, 실패/비실수면 null을 돌려준다. */
+function evalMathExpr(raw){
+  try{
+    let s=(raw||"").trim();
+    if(!s) return null;
+    const supMap={"⁰":"0","¹":"1","²":"2","³":"3","⁴":"4","⁵":"5","⁶":"6","⁷":"7","⁸":"8","⁹":"9","⁻":"-"};
+    s=s.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹⁻]+/g, m=>"^"+m.split("").map(c=>supMap[c]).join(""));
+    s=s.replace(/노무현/g,"52.3").replace(/shangus/gi,"52.3");
+    s=s.replace(/π/g,"pi");
+    const toks=tokenizeMathExpr(s);
+    const v=parseMathTokens(toks);
+    if(typeof v!=="number" || !isFinite(v)) return null;
+    return v;
+  }catch(e){ return null; }
+}
+/* 점수칸 입력 한 줄을 최종적으로 평가한다: 기존 pi/e/shangus '표시 변환'을 먼저 시도하고,
+   없으면 sqrt/log/ln/^ 등을 포함한 일반 수식으로 계산한다. */
+function evalScoreExpr(raw){
+  const magic=magicParse(raw);
+  if(magic) return magic.value;
+  return evalMathExpr(raw);
+}
+
 /* ───────── 저장 / 이어하기 ───────── */
 function buildSession(){
   return {
@@ -955,11 +1078,16 @@ function render(force){
   else if(S.room.phase==="scoring") html=viewScoring();
   else html=viewResults();
 
-  const sig=S.screen+"|"+(S.room?S.room.phase+"|"+S.room.mode+"|"+S.room.order+"|"+(!!S.room.trim)+"|"+(!!S.room.gradesRevealed)+"|"+myCursor()+"|"+S.room.targets.length+"|"+S.room.criteria.length+"|"+S.room.maxTotal:"")+"|"+S.err+"|"+S.banner+"|"+(S.modal?"m":"");
+  const sig=S.screen+"|"+(S.room?S.room.phase+"|"+S.room.mode+"|"+S.room.order+"|"+(!!S.room.trim)+"|"+(!!S.room.gradesRevealed)+"|"+myCursor()+"|"+S.room.targets.length+"|"+S.room.criteria.length+"|"+S.room.maxTotal:"")+"|"+S.err+"|"+S.banner+"|"+(S.modal?S.modal.kind||"m":"")+"|"+(S.resultOrder||"");
   if(!force&&sig===S.lastSig&&S.room&&S.screen==="room"){ refreshLive(); return; }
   S.lastSig=sig;
   APP.innerHTML=(S.modal?modalHTML():"")+html;
   HDR.textContent=S.code?("방 "+S.code+" · "+(S.name||"이름없음")+(isHost()?" (방장)":"")):"";
+  const titleEl=$("#pageTitle");
+  if(titleEl){
+    if(S.room && S.room.phase==="results"){ titleEl.textContent="최종 결과"; titleEl.classList.add("big"); }
+    else { titleEl.textContent="실시간 점수 매기기"; titleEl.classList.remove("big"); }
+  }
   bind();
 }
 function errHTML(){ return S.err?'<div class="err">'+esc(S.err)+'</div>':""; }
@@ -1066,7 +1194,9 @@ function viewSingleScore(){
   });
   h+='<div class="row" style="margin-top:14px"><button class="primary" data-act="singlesubmit">'+(submitted?"다시 제출":"제출")+'</button>'+
      '<button class="ghost sm" data-act="singleskipall">전체 스킵</button>'+(submitted?'<span class="chip done">완료</span>':"")+'</div>'+
-     '<p class="tiny muted" style="margin-top:10px">각 항목의 배점 범위(0~해당 항목 배점) 안에서 직접 입력합니다. 스킵한 항목은 평균 계산에서 제외됩니다.</p></div>';
+     '<p class="tiny muted" style="margin-top:10px">각 항목의 배점 범위(0~해당 항목 배점) 안에서 직접 입력합니다. '+
+     'sqrt(), log()(상용로그), ln()(자연로그), ^(지수, 실수 지수 가능)도 사용할 수 있습니다. '+
+     '스킵한 항목은 평균 계산에서 제외됩니다.</p></div>';
 
   h+='<div class="card"><div class="row">'+
      '<button data-act="singleprev"'+(ti>0?"":" disabled")+'>← 이전 대상</button>'+
@@ -1165,16 +1295,11 @@ function viewSetup(){
      '<div class="row" style="margin-top:12px"><button class="sm ghost" data-act="leave">방 나가기</button></div></div>';
   left+='<div class="card">'+chatPanelHTML()+'</div>';
 
-  /* 오른쪽: 파일 불러오기 + 모드 + 시작 */
-  let right='<div class="card"><h2>1. 파일 불러오기</h2>';
-  if(host){
-    right+='<div class="row"><label class="file">대상 목록 txt<input type="file" id="fTargets" accept=".txt"></label>'+
-              '<label class="file">만점·항목 배점 txt<input type="file" id="fCrits" accept=".txt"></label>'+
-              '<label class="file">통합 파일(대상+항목) txt<input type="file" id="fCombined" accept=".txt"></label></div>'+
-       '<div class="row" style="margin-top:10px"><label class="file">이어하기 파일(json/txt) 불러오기<input type="file" id="fResumeSetup" accept=".json,.txt"></label></div>'+
-       '<p class="tiny muted" style="margin-top:6px">통합 파일 하나로 대상·항목을 한 번에 불러올 수도 있습니다(아래 파일 형식 참고). '+
-       '투표 중 다운로드해둔 결과 파일을 불러오면 대상·항목이 자동으로 채워지고, 이미 채점된 내역은 유지된 채로 이어서 진행할 수 있습니다.</p>';
-  }
+  /* 오른쪽: 설정 현황 요약(+설정 버튼) + 시작하기만 크게 */
+  let right='<div class="card"><div class="row" style="justify-content:space-between;align-items:center">'+
+     '<h2 style="margin:0">설정 현황</h2>'+
+     (host?'<button class="sm" data-act="opensettings">⚙ 설정</button>':'')+
+     '</div>';
   right+='<div class="grid2" style="margin-top:12px">'+
      '<div><h3>대상 ('+R0.targets.length+')</h3>'+(R0.targets.length?'<div class="small">'+R0.targets.map(esc).join(" · ")+'</div>':'<div class="small muted">아직 없음</div>')+'</div>'+
      '<div><h3>항목 ('+crits.length+') · 만점 '+esc(R0.maxTotal)+'점</h3>'+
@@ -1183,33 +1308,15 @@ function viewSetup(){
   if(crits.length && Math.abs(sum-(Number(R0.maxTotal)||0))>0.001)
     right+='<div class="banner warn" style="margin-top:12px">항목 배점의 합('+num(sum,2)+')이 만점('+esc(R0.maxTotal)+')과 다릅니다. '+
        '총점은 만점 기준으로 환산해 계산합니다.</div>';
-  right+='</div>';
-
-  right+='<div class="card"><h2>2. 모드 선택</h2><div class="seg">'+
-     '<button data-act="mode" data-mode="sync" class="'+(R0.mode==="sync"?"on":"")+'"'+(host?"":" disabled")+'>모두 동시에 매기기</button>'+
-     '<button data-act="mode" data-mode="solo" class="'+(R0.mode==="solo"?"on":"")+'"'+(host?"":" disabled")+'>각자 매기기</button></div>'+
-     '<p class="small muted" style="margin-top:10px">'+(R0.mode==="sync"
-       ?"모두가 같은 대상을 보고, 전원이 제출해야 다음 대상으로 넘어갑니다. 이전 대상으로 되돌아가는 것은 방장만 할 수 있습니다."
-       :"각자 자기 속도로 넘기고 되돌아갈 수 있습니다. 전원이 끝까지 마쳐야 결과가 표시됩니다.")+'</p></div>';
-
-  right+='<div class="card"><h2>3. 순서 설정</h2><div class="seg">'+
-     '<button data-act="order" data-order="seq" class="'+(R0.order!=="random"?"on":"")+'"'+(host?"":" disabled")+'>순서대로</button>'+
-     '<button data-act="order" data-order="random" class="'+(R0.order==="random"?"on":"")+'"'+(host?"":" disabled")+'>무작위</button></div>'+
-     '<p class="small muted" style="margin-top:10px">'+(R0.order==="random"
-       ?"시작하기를 누르는 순간 대상 순서가 한 번 무작위로 섞이고, 이후 모든 멤버에게 같은 순서로 표시됩니다."
-       :"대상 목록 파일에 적은 순서 그대로 채점을 진행합니다.")+'</p></div>';
-
-  right+='<div class="card"><h2>4. 채점 방식</h2><div class="seg">'+
-     '<button data-act="trim" data-trim="0" class="'+(!R0.trim?"on":"")+'"'+(host?"":" disabled")+'>전체 평균</button>'+
-     '<button data-act="trim" data-trim="1" class="'+(R0.trim?"on":"")+'"'+(host?"":" disabled")+'>최고·최저 제외 평균</button></div>'+
-     '<p class="small muted" style="margin-top:10px">'+(R0.trim
-       ?"각 항목마다 가장 높은 점수 1개와 가장 낮은 점수 1개를 뺀 나머지 점수로 평균을 냅니다. (채점자가 3명 이상인 항목에만 적용되고, 2명 이하면 그냥 평균을 냅니다.)"
-       :"모든 채점자의 점수를 그대로 평균 냅니다.")+'</p></div>';
+  right+='<p class="small muted" style="margin-top:10px">모드: <b>'+(R0.mode==="sync"?"모두 동시에 매기기":"각자 매기기")+
+     '</b> · 순서: <b>'+(R0.order==="random"?"무작위":"순서대로")+
+     '</b> · 채점 방식: <b>'+(R0.trim?"최고·최저 제외 평균":"전체 평균")+'</b></p>';
+  right+=(host?'<p class="tiny muted" style="margin-top:6px">파일 불러오기, 모드, 순서, 채점 방식은 ‘⚙ 설정’에서 바꿀 수 있습니다.</p>':"")+'</div>';
 
   if(host){
     const ready=R0.targets.length>0&&crits.length>0;
-    right+='<div class="card"><h2>5. 시작</h2><button class="primary" data-act="start"'+(ready?"":" disabled")+'>시작하기</button>'+
-       (ready?"":'<p class="small muted" style="margin-top:8px">두 txt 파일을 모두 불러와야 시작할 수 있습니다.</p>')+
+    right+='<div class="card"><button class="primary" data-act="start" style="width:100%;padding:16px;font-size:17px"'+(ready?"":" disabled")+'>시작하기</button>'+
+       (ready?"":'<p class="small muted" style="margin-top:8px">‘⚙ 설정’에서 두 파일을 모두 불러와야 시작할 수 있습니다.</p>')+
        (R0.resumed?'<p class="small" style="margin-top:8px">이어하기 데이터가 불러와졌습니다. 기존 점수는 유지됩니다.</p>':"")+'</div>';
   }else right+='<div class="card muted">방장이 시작하기를 누르면 자동으로 시작됩니다.</div>';
 
@@ -1243,6 +1350,7 @@ function viewScoring(){
   left+='<div class="row" style="margin-top:14px"><button class="primary" data-act="submit">'+(submitted?"다시 제출":"제출")+'</button>'+
      '<button class="ghost sm" data-act="skipall">전체 스킵</button>'+(submitted?'<span class="chip done">제출 완료</span>':"")+'</div>'+
      '<p class="tiny muted" style="margin-top:10px">각 항목의 배점 범위(0~해당 항목 배점) 안에서 직접 입력합니다. '+
+     'sqrt(), log()(상용로그), ln()(자연로그), ^(지수, 실수 지수 가능)도 사용할 수 있습니다. (예: 9sqrt(9), 3ln(e), 2^0.5) '+
      '스킵한 항목은 0점이 아니라 <b>평균 계산에서 제외</b>됩니다.</p></div>';
 
   left+='<div class="card"><h3>참가자 현황</h3><div id="statusArea">'+statusListHTML()+'</div></div>';
@@ -1591,11 +1699,19 @@ function sortArrow(key){
 }
 function viewResults(){
   const R0=S.room, crits=R0.criteria, rows=aggregate(), trimOn=!!R0.trim;
+  const order=S.resultOrder||"rank";
   let h=bannerHTML()+errHTML();
-  h+='<div class="card"><h2>최종 결과 <span class="small muted">(만점 '+esc(R0.maxTotal)+'점)</span></h2>'+
-     '<p class="small muted">각 항목은 배점으로 환산된 점수이며, 총점은 그 합입니다. (스킵된 항목은 제외 후 만점 기준으로 환산)'+
-     (trimOn?' 표준편차는 채점자 개인 총점 기준으로, 최고·최저 1명씩 제외한 값과 전체 값을 함께 보여줍니다.':' 표준편차는 채점자 개인 총점(만점 기준 환산) 간의 편차입니다.')+'</p>'+
-     '<div id="liveArea">'+liveHTML()+'</div></div>';
+
+  /* 상단: 참가자 현황(좌) + 정렬 필터·다운로드(우, 작게) */
+  h+='<div class="row" style="justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px">';
+  h+='<div id="liveArea" style="flex:1;min-width:180px">'+liveHTML()+'</div>';
+  h+='<div class="row tight" style="flex-wrap:wrap;justify-content:flex-end">'+
+     '<div class="seg sm"><button data-act="resultorder" data-order="rank" class="'+(order==="rank"?"on":"")+'">순위대로 보기</button>'+
+     '<button data-act="resultorder" data-order="seq" class="'+(order==="seq"?"on":"")+'">순서대로 보기</button></div>'+
+     '<button class="sm" data-act="dl1" title="총점만 (txt)">총점만</button>'+
+     '<button class="sm" data-act="dl2" title="항목별 + 총점 (txt)">항목별+총점</button>'+
+     '<button class="sm" data-act="savejson" title="전체 데이터 (json)">전체(json)</button>'+
+     '</div></div>';
 
   /* 통계 계산 + 검색/정렬 적용 */
   let display=rows.map((r,ti)=>{
@@ -1603,6 +1719,14 @@ function viewResults(){
     return { ti, name:r.name, per:r.per, total:r.total,
       stdAll:stddev(totals), stdTrim:stddev(trimExtremes(totals)) };
   });
+  if(order==="rank"){
+    display=display.slice().sort((a,b)=>{
+      if(a.total===null && b.total===null) return 0;
+      if(a.total===null) return 1;
+      if(b.total===null) return -1;
+      return b.total-a.total;
+    });
+  }
   const q=(S.resultSearch||"").trim().toLowerCase();
   if(S.resultSort && S.resultSort.key){
     const key=S.resultSort.key, dir=S.resultSort.dir;
@@ -1615,6 +1739,8 @@ function viewResults(){
     });
   }
 
+  h+='<p class="tiny muted" style="margin-bottom:8px">각 항목은 배점으로 환산된 점수이며 총점은 그 합입니다(스킵 항목은 제외 후 만점 기준 환산). '+
+     (trimOn?'표준편차는 채점자 개인 총점 기준으로 최고·최저 1명씩 제외한 값과 전체 값을 함께 보여줍니다.':'표준편차는 채점자 개인 총점(만점 기준 환산) 간의 편차입니다.')+' (만점 '+esc(R0.maxTotal)+'점)</p>';
   h+='<div class="row" style="margin-bottom:10px"><input type="text" id="resultSearch" placeholder="대상 검색" '+
      'style="max-width:240px" value="'+esc(S.resultSearch||"")+'"></div>';
 
@@ -1638,11 +1764,6 @@ function viewResults(){
        '<td><button class="sm" data-act="detail" data-ti="'+r.ti+'">자세히 보기</button></td></tr>';
   });
   h+='</tbody></table></div>';
-  h+='<div class="card" style="margin-top:14px"><h3>결과 다운로드</h3><div class="row">'+
-     '<button class="primary sm" data-act="dl1">총점만 (txt)</button>'+
-     '<button class="primary sm" data-act="dl2">항목별 + 총점 (txt)</button>'+
-     '<button class="sm" data-act="savejson">전체 데이터 (json)</button></div>'+
-     '<p class="tiny muted" style="margin-top:8px">구성원 누구나 다운로드할 수 있습니다.</p></div>';
 
   h+='<div class="card" style="margin-top:14px"><h3>등급 발표</h3>';
   if(!R0.gradesRevealed){
@@ -1664,6 +1785,48 @@ function viewResults(){
 }
 
 function modalHTML(){
+  if(S.modal && S.modal.kind==="settings") return settingsModalHTML();
+  return detailModalHTML();
+}
+function settingsModalHTML(){
+  const R0=S.room, host=isHost();
+  let h='<div class="modal" data-act="closemodal"><div class="box" data-stop="1">'+
+    '<div class="row"><h2 style="margin:0">방 설정</h2><div style="flex:1"></div>'+
+    '<button class="sm ghost" data-act="closemodal">닫기</button></div>';
+
+  h+='<div style="margin-top:14px"><h3>파일 불러오기</h3>';
+  if(host){
+    h+='<div class="row"><label class="file">대상 목록 txt<input type="file" id="fTargets" accept=".txt"></label>'+
+              '<label class="file">만점·항목 배점 txt<input type="file" id="fCrits" accept=".txt"></label>'+
+              '<label class="file">통합 파일(대상+항목) txt<input type="file" id="fCombined" accept=".txt"></label></div>'+
+       '<div class="row" style="margin-top:10px"><label class="file">이어하기 파일(json/txt) 불러오기<input type="file" id="fResumeSetup" accept=".json,.txt"></label></div>'+
+       '<p class="tiny muted" style="margin-top:6px">통합 파일 하나로 대상·항목을 한 번에 불러올 수도 있습니다(‘[대상]’/‘[항목]’ 구획으로 나눠 적기). '+
+       '투표 중 다운로드해둔 결과 파일을 불러오면 대상·항목이 자동으로 채워지고, 이미 채점된 내역은 유지된 채로 이어서 진행할 수 있습니다.</p>';
+  }else h+='<p class="small muted">방장만 파일을 불러올 수 있습니다.</p>';
+  h+='</div>';
+
+  h+='<div style="margin-top:18px"><h3>모드</h3><div class="seg">'+
+     '<button data-act="mode" data-mode="sync" class="'+(R0.mode==="sync"?"on":"")+'"'+(host?"":" disabled")+'>모두 동시에 매기기</button>'+
+     '<button data-act="mode" data-mode="solo" class="'+(R0.mode==="solo"?"on":"")+'"'+(host?"":" disabled")+'>각자 매기기</button></div>'+
+     '<p class="small muted" style="margin-top:8px">'+(R0.mode==="sync"
+       ?"모두가 같은 대상을 보고, 전원이 제출해야 다음 대상으로 넘어갑니다."
+       :"각자 자기 속도로 넘기고 되돌아갈 수 있습니다.")+'</p></div>';
+
+  h+='<div style="margin-top:18px"><h3>순서</h3><div class="seg">'+
+     '<button data-act="order" data-order="seq" class="'+(R0.order!=="random"?"on":"")+'"'+(host?"":" disabled")+'>순서대로</button>'+
+     '<button data-act="order" data-order="random" class="'+(R0.order==="random"?"on":"")+'"'+(host?"":" disabled")+'>무작위</button></div></div>';
+
+  h+='<div style="margin-top:18px"><h3>채점 방식</h3><div class="seg">'+
+     '<button data-act="trim" data-trim="0" class="'+(!R0.trim?"on":"")+'"'+(host?"":" disabled")+'>전체 평균</button>'+
+     '<button data-act="trim" data-trim="1" class="'+(R0.trim?"on":"")+'"'+(host?"":" disabled")+'>최고·최저 제외 평균</button></div>'+
+     '<p class="small muted" style="margin-top:8px">'+(R0.trim
+       ?"각 항목마다 가장 높은 점수 1개와 가장 낮은 점수 1개를 뺀 나머지로 평균을 냅니다(채점자 3명 이상인 항목에만 적용)."
+       :"모든 채점자의 점수를 그대로 평균 냅니다.")+'</p></div>';
+
+  h+='</div></div>';
+  return h;
+}
+function detailModalHTML(){
   const ti=S.modal.ti, R0=S.room, crits=R0.criteria, ids=allScorerIds(), full=Number(R0.maxTotal)||100;
   let h='<div class="modal" data-act="closemodal"><div class="box" data-stop="1">'+
     '<div class="row"><h2 style="margin:0">'+esc(R0.targets[ti])+' · 멤버별 점수</h2><div style="flex:1"></div>'+
@@ -1695,16 +1858,37 @@ function bind(){
   const nick=$("#nick");
   if(nick) nick.addEventListener("input",e=>{ S.name=e.target.value.trim().slice(0,20); ls("sc.name",S.name); });
   APP.querySelectorAll(".scoreInput").forEach(i=>i.addEventListener("input",e=>{
-    const ci=e.target.dataset.ci, raw=e.target.value, single=e.target.dataset.scope==="single";
+    const el=e.target, ci=el.dataset.ci, single=el.dataset.scope==="single";
     const draftObj = single ? S.single.draft : S.draft;
     const valObj = single ? S.single.draftVal : S.draftVal;
+    let raw=el.value, pos=el.selectionStart;
+
+    /* sqrt/log/ln 을 다 입력한 순간 자동으로 ()를 열고 그 안에 커서를 둔다 */
+    const before=raw.slice(0,pos);
+    const fm=before.match(/(sqrt|log|ln)$/i);
+    if(fm && raw[pos]!=="("){
+      raw=raw.slice(0,pos)+"()"+raw.slice(pos);
+      pos=pos+1;
+      el.value=raw; el.setSelectionRange(pos,pos);
+    }
+
+    /* ^정수 형태의 지수를 커서가 맨 끝일 때 실시간으로 위첨자 유니코드로 바꿔 보여준다.
+       (소수 지수는 위첨자로 표시할 표준 문자가 없어 ^0.5 형태 그대로 두되, 계산은 정상 동작) */
+    if(el.selectionStart===raw.length){
+      const supMap={"0":"⁰","1":"¹","2":"²","3":"³","4":"⁴","5":"⁵","6":"⁶","7":"⁷","8":"⁸","9":"⁹","-":"⁻"};
+      const converted=raw.replace(/\^(-?\d+)(?!\d)/g,(_,d)=>d.split("").map(c=>supMap[c]).join(""));
+      if(converted!==raw){ raw=converted; el.value=raw; el.setSelectionRange(raw.length,raw.length); }
+    }
+
     const magic=magicParse(raw);
     if(magic){
       draftObj[ci]=magic.display; valObj[ci]=magic.value;
-      e.target.value=magic.display;
-    }else{
-      draftObj[ci]=raw; delete valObj[ci];
+      el.value=magic.display;
+      return;
     }
+    draftObj[ci]=raw;
+    const val=evalMathExpr(raw);
+    if(val!==null) valObj[ci]=val; else delete valObj[ci];
   }));
 
   const chatInput=$("#chatInput");
@@ -1885,7 +2069,9 @@ async function handle(act,d){
       playGradeReveal(g, {bulkLowTiers:bulkLow});
     }
     else if(act==="backscore"){ await update(R(Proom(S.code)),{phase:"scoring"}); S.draftFor=null; }
-    else if(act==="detail"){ S.modal={ti:Number(d.ti)}; render(true); }
+    else if(act==="detail"){ S.modal={kind:"detail", ti:Number(d.ti)}; render(true); }
+    else if(act==="opensettings"){ S.modal={kind:"settings"}; render(true); }
+    else if(act==="resultorder"){ S.resultOrder=d.order; S.resultSort={key:null,dir:"desc"}; render(true); }
     else if(act==="sortresult"){
       const key=d.key;
       if(!S.resultSort||S.resultSort.key!==key) S.resultSort={key,dir:"desc"};
