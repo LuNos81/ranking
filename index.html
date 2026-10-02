@@ -6,9 +6,9 @@
 <title>실시간 점수 매기기</title>
 <style>
 @font-face{font-family:'GradeRevealFont';src:url('https://cdn.jsdelivr.net/gh/LuNos81/ranking@main/fonts/HiKRextrabold.ttf') format('truetype');font-weight:800;font-display:swap;}
-/* 발표 연출 폰트 테스트용: font/ 폴더에 아래 이름 그대로 파일을 넣어두면 바로 적용됩니다. */
-@font-face{font-family:'SeoulAlrimHeavy';src:url('font/SeoulAlrimTTF-Heavy.ttf') format('truetype');font-weight:900;font-display:swap;}
-@font-face{font-family:'JamsilBold';src:url('font/The_Jamsil_5_Bold.ttf') format('truetype');font-weight:700;font-display:swap;}
+/* 발표 연출 폰트 테스트용: fonts/ 폴더에 아래 이름 그대로 파일을 넣어두면 바로 적용됩니다. */
+@font-face{font-family:'SeoulAlrimHeavy';src:url('fonts/SeoulAlrimTTF-Heavy.ttf') format('truetype');font-weight:900;font-display:swap;}
+@font-face{font-family:'JamsilBold';src:url('fonts/The_Jamsil_5_Bold.ttf') format('truetype');font-weight:700;font-display:swap;}
 
 :root{
   --reveal-font:'GradeRevealFont','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif;
@@ -359,7 +359,7 @@ const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&
 const rid = p => p+Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 const num = (x,d) => (Math.round(x*Math.pow(10,d))/Math.pow(10,d)).toFixed(d);
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){return null;}return v;}
-/* 등급 발표 연출 폰트 테스트: font/ 폴더에 해당 이름 그대로 넣어두면 적용된다. */
+/* 등급 발표 연출 폰트 테스트: fonts/ 폴더에 해당 이름 그대로 넣어두면 적용된다. */
 const REVEAL_FONTS={
   default:"'GradeRevealFont','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif",
   seoulalrim:"'SeoulAlrimHeavy','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif",
@@ -1318,7 +1318,7 @@ function viewLobby(){
            '<option value="system"'+(S.revealFont==="system"?" selected":"")+'>시스템 기본</option>'+
          '</select>'+
        '</div>'+
-       '<p class="tiny muted" style="margin-top:-4px;margin-bottom:10px">font/ 폴더에 SeoulAlrimTTF-Heavy.ttf, The_Jamsil_5_Bold.ttf 파일을 넣어두면 선택해서 바로 미리볼 수 있습니다.</p>'+
+       '<p class="tiny muted" style="margin-top:-4px;margin-bottom:10px">fonts/ 폴더에 SeoulAlrimTTF-Heavy.ttf, The_Jamsil_5_Bold.ttf 파일을 넣어두면 선택해서 바로 미리볼 수 있습니다.</p>'+
        '<label class="row tight" style="font-size:13px;margin-bottom:6px"><input type="checkbox" id="testBulkToggle"> 범급 미만 등급(송급~배급)은 한번에 모아서 발표</label>'+
        '<label class="row tight" style="font-size:13px;margin-bottom:10px"><input type="checkbox" id="testStyleToggle"> 발표 연출 2안(이름 → 등급)으로 보기</label>'+
        '<button data-act="testgrades">테스트 데이터로 미리보기 (100개)</button>'+
