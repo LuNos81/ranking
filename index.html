@@ -146,7 +146,7 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .gradeCardWrap.leaving{animation:gradeCardOut .6s ease forwards!important}
 /* ── 발표 연출 2안: 이름 → 등급 전환 ── */
 .gradeStage.single .nsWrap{position:absolute}
-.nsWrap{width:100%;max-width:680px;height:380px;position:relative;
+.nsWrap{width:100%;max-width:720px;height:420px;position:relative;
   animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.25) both}
 .nsWrap.leaving{animation:gradeCardOut .42s ease forwards!important}
 .nsName{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
@@ -161,10 +161,10 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .nsGradeWrap{flex:0 0 auto;text-align:left}
 .nsGradeBig{font-size:72px;font-weight:900;line-height:1.05;color:var(--tier-color,#fff);
   text-shadow:0 0 26px var(--glow-color,rgba(255,255,255,.5))}
-.nsRank{margin-top:8px;font-size:16px;color:#fff;opacity:.8}
-.nsCritList{flex:1;display:flex;flex-direction:column;gap:7px;max-width:300px;min-width:0}
-.nsCritRow{display:flex;justify-content:space-between;gap:10px;font-size:15px;color:#fff;
-  padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.15)}
+.nsRank{margin-top:8px;font-size:28.8px;color:#fff;opacity:.8}
+.nsCritList{flex:1;display:flex;flex-direction:column;gap:9px;max-width:380px;min-width:0}
+.nsCritRow{display:flex;justify-content:space-between;gap:10px;font-size:27px;color:#fff;
+  padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.15)}
 .nsCritRow:last-child{border-bottom:none}
 .nsCritRow .cn{opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
 .nsCritRow .cv{font-weight:700;font-variant-numeric:tabular-nums}
@@ -186,6 +186,7 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 /* 도급/양급이 회전하는 동안 앞면을 뒷면과 똑같은 모습으로 바꿔, 내용과 글로우가 보이지 않게 한다 */
 .gradeFace.front.spinlook{background:linear-gradient(150deg,#30333c,#1a1c22)!important;color:#fff!important;
   border:none!important;box-shadow:0 10px 28px rgba(0,0,0,.4)!important;animation:none!important}
+.gradeFace.front.spinlook .backmark{font-size:44px;opacity:.45}
 .gradeFace.front{background:linear-gradient(160deg,#fff 0%,var(--tier-bg,#fff) 100%);color:#1c1e24;transform:rotateY(180deg);
   border:4px solid var(--tier-color,#ccc);animation:gradeGlow 2s ease-in-out infinite}
 .gradeFace .gbadge{display:inline-block;border-radius:999px;
@@ -1640,25 +1641,29 @@ function buildRevealList(g){
   return list;
 }
 const MANUAL_TIERS=new Set(["beom","do","yang"]);
-/* 도급/양급 카드 공개 연출: 뒤집기 전에 n바퀴 회전시키다가 마지막에 앞면에서 착지(슬롯머신처럼)
-   회전 중에는 앞면을 뒷면과 똑같은 모습(spinlook)으로 바꿔서, 내용과 글로우가 전혀 보이지 않게 한다. */
+/* 도급/양급 카드 공개 연출: 지정한 시간(durSec) 동안 정확히 laps바퀴를 일정한 속도로 돈 뒤,
+   마지막 반 바퀴만 자연스럽게 감속하며 앞면에서 착지한다(슬롯머신처럼).
+   회전 중에는 앞면을 뒷면과 완전히 똑같은 모습(spinlook)으로 바꿔서, 내용과 글로우가 전혀 보이지 않게 한다. */
 async function spinRevealCard(inner, front, laps, durSec){
+  const dur=(durSec||4)*1000;
   const totalDeg=laps*360+180;
-  const dur=durSec||4;
   const origClass=front.className;
   const origHTML=front.innerHTML;
   front.className="gradeFace front spinlook";
   front.innerHTML="<div class='backmark'>?</div>";
-  inner.style.transition="transform "+dur.toFixed(2)+"s cubic-bezier(.12,.7,.25,1)";
-  void inner.offsetWidth;
-  inner.style.transform="rotateY("+totalDeg+"deg)";
-  await sleep(dur*1000);
-  inner.style.transition="none";
-  inner.style.transform="rotateY(180deg)";
-  void inner.offsetWidth;
+  const anim=inner.animate([
+    {transform:"rotateY(0deg)", offset:0},
+    {transform:"rotateY("+(laps*360)+"deg)", offset:0.75, easing:"linear"},
+    {transform:"rotateY("+totalDeg+"deg)", offset:1, easing:"cubic-bezier(.22,.9,.3,1)"}
+  ], {duration:dur, fill:"forwards", easing:"linear"});
+  try{ await anim.finished; }catch(e){}
   front.className=origClass;
   front.innerHTML=origHTML;
   void front.offsetWidth;
+  inner.style.transition="none";
+  inner.style.transform="rotateY(180deg)";
+  void inner.offsetWidth;
+  try{ anim.cancel(); }catch(e){}
   inner.classList.add("flipped");
   inner.style.transition="";
   inner.style.transform="";
@@ -1674,6 +1679,7 @@ function buildNameSlideCard(item, g){
   const body=document.createElement("div");
   body.className="nsBody";
   const rankTxt=(item.rank!==null && item.rank!==undefined) ? ordinal(item.rank) : "–";
+  const rankCls=rankColorClass(item.rank);
   let critHTML="";
   if(item.per && g.criteria && g.criteria.length){
     critHTML="<div class='nsCritList'>"+g.criteria.map((c,ci)=>{
@@ -1681,11 +1687,12 @@ function buildNameSlideCard(item, g){
       const val=(p && p.pts!==null && p.pts!==undefined) ? num(p.pts,2) : "–";
       const critRank=(item.critRank && item.critRank[ci]!==undefined) ? item.critRank[ci] : null;
       const rk=(critRank!==null) ? ordinal(critRank) : "–";
-      return "<div class='nsCritRow'><span class='cn'>"+esc(c.name)+"</span><span class='cv'>"+val+"점 ("+rk+")</span></div>";
+      const rkCls=rankColorClass(critRank);
+      return "<div class='nsCritRow'><span class='cn'>"+esc(c.name)+"</span><span class='cv "+rkCls+"'>"+val+"점 ("+rk+")</span></div>";
     }).join("")+"</div>";
   }
   body.innerHTML="<div class='nsGradeWrap'><div class='nsGradeBig tier-"+item.tier+"'>"+(item.special?"✨ ":"")+esc(item.gradeName)+"</div>"+
-    "<div class='nsRank'>"+num(item.total,2)+"점 · "+rankTxt+"</div></div>"+critHTML;
+    "<div class='nsRank "+rankCls+"'>"+num(item.total,2)+"점 · "+rankTxt+"</div></div>"+critHTML;
   wrap.appendChild(nameEl); wrap.appendChild(body);
   return wrap;
 }
