@@ -6,8 +6,12 @@
 <title>실시간 점수 매기기</title>
 <style>
 @font-face{font-family:'GradeRevealFont';src:url('https://cdn.jsdelivr.net/gh/LuNos81/ranking@main/fonts/HiKRextrabold.ttf') format('truetype');font-weight:800;font-display:swap;}
+/* 발표 연출 폰트 테스트용: font/ 폴더에 아래 이름 그대로 파일을 넣어두면 바로 적용됩니다. */
+@font-face{font-family:'SeoulAlrimHeavy';src:url('font/SeoulAlrimTTF-Heavy.ttf') format('truetype');font-weight:900;font-display:swap;}
+@font-face{font-family:'JamsilBold';src:url('font/The_Jamsil_5_Bold.ttf') format('truetype');font-weight:700;font-display:swap;}
 
 :root{
+  --reveal-font:'GradeRevealFont','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif;
   --bg:#f6f7f9; --panel:#fff; --panel2:#f0f2f5; --line:#dfe3e8;
   --fg:#16181d; --muted:#636b78; --accent:#3f5efb; --accent-fg:#fff;
   --ok:#1a9c5b; --warn:#c27803; --bad:#d64545; --chip:#e9ecf2; --radius:12px;
@@ -114,7 +118,7 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 /* ── 등급 발표 연출 ── */
 .gradeOverlay{position:fixed;inset:0;background:#0a0a10;z-index:9999;
   display:flex;flex-direction:column;align-items:center;padding:56px 16px 40px;overflow-y:auto;
-  font-family:'GradeRevealFont','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif}
+  font-family:var(--reveal-font)}
 .gradeStage-title{color:#fff;text-align:center;margin-bottom:14px}
 .gradeStage-title h2{margin:0;font-size:22px}
 .gradeStage{width:100%;max-width:640px;display:flex;flex-direction:column;gap:14px;align-items:center}
@@ -355,6 +359,16 @@ const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&
 const rid = p => p+Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 const num = (x,d) => (Math.round(x*Math.pow(10,d))/Math.pow(10,d)).toFixed(d);
 function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){return null;}return v;}
+/* 등급 발표 연출 폰트 테스트: font/ 폴더에 해당 이름 그대로 넣어두면 적용된다. */
+const REVEAL_FONTS={
+  default:"'GradeRevealFont','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif",
+  seoulalrim:"'SeoulAlrimHeavy','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif",
+  jamsil:"'JamsilBold','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif",
+  system:"'Pretendard','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif"
+};
+function applyRevealFont(){
+  try{ document.documentElement.style.setProperty("--reveal-font", REVEAL_FONTS[S.revealFont]||REVEAL_FONTS.default); }catch(e){}
+}
 /* Firebase 는 배열/객체를 상황에 따라 다르게 돌려주므로 항상 객체처럼 다룹니다 */
 const obj = o => (o && typeof o === "object") ? o : {};
 const arr = o => Array.isArray(o) ? o.filter(x=>x!=null) : Object.values(obj(o));
@@ -370,10 +384,12 @@ const S = {
   draft:null, draftFor:null, skip:{}, draftVal:{},
   pending:null, err:"", banner:"", modal:null, lastSig:"",
   single:null, resultSort:{key:null,dir:"desc"}, resultSearch:"", resultOrder:"rank",
-  testUnlocked:false, testSurvivalRank:50
+  testUnlocked:false, testSurvivalRank:50,
+  revealFont: ls("sc.revealFont") || "default"
 };
 
 /* ───────── boot ───────── */
+applyRevealFont();
 try{
   if(!firebaseConfig.databaseURL) throw new Error("no config");
   const app = initializeApp(firebaseConfig);
@@ -1293,6 +1309,16 @@ function viewLobby(){
   '<div class="card"><h2>등급 발표 연출 테스트</h2>'+
   (S.testUnlocked
     ? ('<p class="small muted">실제 방이 없어도 임의로 완성된 100개짜리 가짜 데이터로 등급 발표 연출을 미리 볼 수 있습니다.</p>'+
+       '<div class="row tight" style="margin-bottom:10px;align-items:center">'+
+         '<span class="small muted">발표 연출 폰트</span>'+
+         '<select id="revealFontSelect" style="max-width:220px">'+
+           '<option value="default"'+(S.revealFont==="default"?" selected":"")+'>기본(HiKR Extrabold)</option>'+
+           '<option value="seoulalrim"'+(S.revealFont==="seoulalrim"?" selected":"")+'>서울알림체 Heavy</option>'+
+           '<option value="jamsil"'+(S.revealFont==="jamsil"?" selected":"")+'>잠실 5 Bold</option>'+
+           '<option value="system"'+(S.revealFont==="system"?" selected":"")+'>시스템 기본</option>'+
+         '</select>'+
+       '</div>'+
+       '<p class="tiny muted" style="margin-top:-4px;margin-bottom:10px">font/ 폴더에 SeoulAlrimTTF-Heavy.ttf, The_Jamsil_5_Bold.ttf 파일을 넣어두면 선택해서 바로 미리볼 수 있습니다.</p>'+
        '<label class="row tight" style="font-size:13px;margin-bottom:6px"><input type="checkbox" id="testBulkToggle"> 범급 미만 등급(송급~배급)은 한번에 모아서 발표</label>'+
        '<label class="row tight" style="font-size:13px;margin-bottom:10px"><input type="checkbox" id="testStyleToggle"> 발표 연출 2안(이름 → 등급)으로 보기</label>'+
        '<button data-act="testgrades">테스트 데이터로 미리보기 (100개)</button>'+
@@ -2457,6 +2483,10 @@ function detailModalHTML(){
 function bind(){
   const nick=$("#nick");
   if(nick) nick.addEventListener("input",e=>{ S.name=e.target.value.trim().slice(0,20); ls("sc.name",S.name); });
+  const revealFontSel=$("#revealFontSelect");
+  if(revealFontSel) revealFontSel.addEventListener("change",e=>{
+    S.revealFont=e.target.value; ls("sc.revealFont",S.revealFont); applyRevealFont();
+  });
   APP.querySelectorAll(".scoreInput").forEach(i=>i.addEventListener("input",e=>{
     const el=e.target, ci=el.dataset.ci, single=el.dataset.scope==="single";
     const draftObj = single ? S.single.draft : S.draft;
