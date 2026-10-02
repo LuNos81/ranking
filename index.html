@@ -8,7 +8,7 @@
 @font-face{font-family:'GradeRevealFont';src:url('https://cdn.jsdelivr.net/gh/LuNos81/ranking@main/fonts/HiKRextrabold.ttf') format('truetype');font-weight:800;font-display:swap;}
 /* 발표 연출 폰트 테스트용: fonts/ 폴더에 아래 이름 그대로 파일을 넣어두면 바로 적용됩니다. */
 @font-face{font-family:'SeoulAlrimHeavy';src:url('fonts/SeoulAlrimTTF-Heavy.ttf') format('truetype');font-weight:900;font-display:swap;}
-@font-face{font-family:'JamsilBold';src:url('fonts/The_Jamsil_5_Bold.ttf') format('truetype');font-weight:700;font-display:swap;}
+@font-face{font-family:'JamsilBold';src:url('fonts/The Jamsil 5 Bold.ttf') format('truetype');font-weight:700;font-display:swap;}
 
 :root{
   --reveal-font:'GradeRevealFont','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif;
@@ -1318,7 +1318,7 @@ function viewLobby(){
            '<option value="system"'+(S.revealFont==="system"?" selected":"")+'>시스템 기본</option>'+
          '</select>'+
        '</div>'+
-       '<p class="tiny muted" style="margin-top:-4px;margin-bottom:10px">fonts/ 폴더에 SeoulAlrimTTF-Heavy.ttf, The_Jamsil_5_Bold.ttf 파일을 넣어두면 선택해서 바로 미리볼 수 있습니다.</p>'+
+       '<p class="tiny muted" style="margin-top:-4px;margin-bottom:10px">fonts/ 폴더에 SeoulAlrimTTF-Heavy.ttf, The Jamsil 5 Bold.ttf 파일을 넣어두면 선택해서 바로 미리볼 수 있습니다.</p>'+
        '<label class="row tight" style="font-size:13px;margin-bottom:6px"><input type="checkbox" id="testBulkToggle"> 범급 미만 등급(송급~배급)은 한번에 모아서 발표</label>'+
        '<label class="row tight" style="font-size:13px;margin-bottom:10px"><input type="checkbox" id="testStyleToggle"> 발표 연출 2안(이름 → 등급)으로 보기</label>'+
        '<button data-act="testgrades">테스트 데이터로 미리보기 (100개)</button>'+
@@ -1667,29 +1667,41 @@ function buildRevealList(g){
   return list;
 }
 const MANUAL_TIERS=new Set(["beom","do","yang"]);
-/* 도급/양급 카드 공개 연출: 지정한 시간(durSec) 동안 정확히 laps바퀴를 일정한 속도로 돈 뒤,
-   마지막 반 바퀴만 자연스럽게 감속하며 앞면에서 착지한다(슬롯머신처럼).
-   회전 중에는 앞면을 뒷면과 완전히 똑같은 모습(spinlook)으로 바꿔서, 내용과 글로우가 전혀 보이지 않게 한다. */
+/* 도급/양급 카드 공개 연출: '1바퀴' = 뒷면→앞면→뒷면으로 돌아오는 360도 회전.
+   laps바퀴 중 마지막 한 바퀴를 제외한 나머지(laps-1바퀴)는 빠르게 돌리며 앞면을 뒷면과 완전히 같은
+   모습(spinlook)으로 가려 내용·글로우가 보이지 않게 하고, 마지막 한 바퀴는 일반 등급 공개와 똑같은
+   속도·곡선으로 자연스럽게 돌아 그 안에서 진짜 앞면이 자연스럽게 드러나게 한다(별도로 '짠' 하고
+   바꿔치기하지 않음). durSec은 전체(도는 구간 전부 포함) 소요 시간. */
 async function spinRevealCard(inner, front, laps, durSec){
-  const dur=(durSec||4)*1000;
-  const totalDeg=laps*360+180;
+  const FINAL_MS=1300, FINAL_EASE="cubic-bezier(.3,.15,.15,1)"; /* 일반 등급 공개와 동일한 속도/곡선 */
+  const totalMs=(durSec||2.5)*1000;
+  const darkLaps=Math.max(0, laps-1);
+  const darkDeg=darkLaps*360;
+  const darkMs=Math.max(0, totalMs-FINAL_MS);
   const origClass=front.className;
   const origHTML=front.innerHTML;
-  front.className="gradeFace front spinlook";
-  front.innerHTML="<div class='backmark'>?</div>";
-  const anim=inner.animate([
-    {transform:"rotateY(0deg)", offset:0},
-    {transform:"rotateY("+(laps*360)+"deg)", offset:0.75, easing:"linear"},
-    {transform:"rotateY("+totalDeg+"deg)", offset:1, easing:"cubic-bezier(.22,.9,.3,1)"}
-  ], {duration:dur, fill:"forwards", easing:"linear"});
-  try{ await anim.finished; }catch(e){}
+
+  if(darkLaps>0){
+    front.className="gradeFace front spinlook";
+    front.innerHTML="<div class='backmark'>?</div>";
+    const anim=inner.animate(
+      [{transform:"rotateY(0deg)"},{transform:"rotateY("+darkDeg+"deg)"}],
+      {duration:darkMs, easing:"linear", fill:"forwards"}
+    );
+    try{ await anim.finished; }catch(e){}
+    inner.style.transition="none";
+    inner.style.transform="rotateY("+darkDeg+"deg)";
+    void inner.offsetWidth;
+    try{ anim.cancel(); }catch(e){}
+  }
+
+  /* 마지막 한 바퀴: 가면을 벗기고, 송급~배급 공개와 똑같은 속도로 자연스럽게 돌아 앞면을 보여준다 */
   front.className=origClass;
   front.innerHTML=origHTML;
-  void front.offsetWidth;
-  inner.style.transition="none";
-  inner.style.transform="rotateY(180deg)";
+  inner.style.transition="transform "+(FINAL_MS/1000).toFixed(2)+"s "+FINAL_EASE;
   void inner.offsetWidth;
-  try{ anim.cancel(); }catch(e){}
+  inner.style.transform="rotateY("+(darkDeg+180)+"deg)";
+  await sleep(FINAL_MS);
   inner.classList.add("flipped");
   inner.style.transition="";
   inner.style.transform="";
@@ -1973,9 +1985,9 @@ async function playGradeReveal(g, opts){
     if(style==="slide"){
       await playNameSlideTransition(wrap, skipped);
     }else if(!skipped && item.tier==="do"){
-      await spinRevealCard(inner, front, 2, 4);
+      await spinRevealCard(inner, front, 2, 2.5);
     }else if(!skipped && item.tier==="yang"){
-      await spinRevealCard(inner, front, 4, 4);
+      await spinRevealCard(inner, front, 4, 2.5);
     }else{
       inner.classList.add("flipped");
     }
