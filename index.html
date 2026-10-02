@@ -112,7 +112,7 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .statusrow .muted{font-size:12.5px}
 
 /* ── 등급 발표 연출 ── */
-.gradeOverlay{position:fixed;inset:0;background:rgba(10,10,16,.82);z-index:9999;
+.gradeOverlay{position:fixed;inset:0;background:#0a0a10;z-index:9999;
   display:flex;flex-direction:column;align-items:center;padding:56px 16px 40px;overflow-y:auto;
   font-family:'GradeRevealFont','Pretendard','Apple SD Gothic Neo',system-ui,sans-serif}
 .gradeStage-title{color:#fff;text-align:center;margin-bottom:14px}
@@ -146,28 +146,35 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .gradeCardWrap.leaving{animation:gradeCardOut .6s ease forwards!important}
 /* ── 발표 연출 2안: 이름 → 등급 전환 ── */
 .gradeStage.single .nsWrap{position:absolute}
-.nsWrap{width:100%;max-width:640px;height:220px;position:relative;
+.nsWrap{width:100%;max-width:680px;height:380px;position:relative;
   animation:gradeCardIn .5s cubic-bezier(.2,.9,.3,1.25) both}
 .nsWrap.leaving{animation:gradeCardOut .42s ease forwards!important}
 .nsName{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  font-size:40px;font-weight:800;color:#fff;text-align:center;max-width:88%;
+  font-size:40px;font-weight:800;color:#fff;text-align:center;max-width:92%;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  transition:left 1s cubic-bezier(.3,.15,.15,1),transform 1s cubic-bezier(.3,.15,.15,1),
-    font-size 1s cubic-bezier(.3,.15,.15,1),text-align 0s linear .5s}
-.nsName.toLeft{left:0;transform:translate(0,-50%);font-size:24px;text-align:left;max-width:42%}
-.nsResult{position:absolute;right:0;top:50%;transform:translate(0,-50%) scale(.82);opacity:0;text-align:right;
-  transition:opacity .7s ease,transform .7s cubic-bezier(.2,.9,.3,1.15)}
-.nsResult.show{opacity:1;transform:translate(0,-50%) scale(1)}
-.nsGrade{font-size:50px;font-weight:900;line-height:1.08;color:var(--tier-color,#fff);
-  text-shadow:0 0 22px var(--glow-color,rgba(255,255,255,.5))}
-.nsRank{margin-top:8px;font-size:15px;color:#fff;opacity:.8}
-.nsGrade.tier-song{--tier-color:#8991a0;--glow-color:rgba(137,145,160,.55)}
-.nsGrade.tier-wan{--tier-color:#8bc34a;--glow-color:rgba(139,195,74,.6)}
-.nsGrade.tier-bak{--tier-color:#40b4e6;--glow-color:rgba(64,180,230,.6)}
-.nsGrade.tier-bae{--tier-color:#9256d9;--glow-color:rgba(146,86,217,.6)}
-.nsGrade.tier-beom{--tier-color:#c3c8d1;--glow-color:rgba(211,216,224,.85)}
-.nsGrade.tier-do{--tier-color:#e0b32a;--glow-color:rgba(224,179,42,.8)}
-.nsGrade.tier-yang{--tier-color:#ff5ea8;--glow-color:rgba(255,255,255,.85)}
+  transition:top 1s cubic-bezier(.3,.15,.15,1),transform 1s cubic-bezier(.3,.15,.15,1)}
+.nsName.toTop{top:10%;transform:translate(-50%,0)}
+.nsBody{position:absolute;left:0;right:0;top:64%;transform:translateY(-50%);
+  display:flex;align-items:center;justify-content:space-between;gap:20px;opacity:0;
+  transition:opacity .7s ease,transform .7s cubic-bezier(.2,.9,.3,1.1)}
+.nsBody.show{opacity:1;transform:translateY(-50%) scale(1)}
+.nsGradeWrap{flex:0 0 auto;text-align:left}
+.nsGradeBig{font-size:72px;font-weight:900;line-height:1.05;color:var(--tier-color,#fff);
+  text-shadow:0 0 26px var(--glow-color,rgba(255,255,255,.5))}
+.nsRank{margin-top:8px;font-size:16px;color:#fff;opacity:.8}
+.nsCritList{flex:1;display:flex;flex-direction:column;gap:7px;max-width:300px;min-width:0}
+.nsCritRow{display:flex;justify-content:space-between;gap:10px;font-size:15px;color:#fff;
+  padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.15)}
+.nsCritRow:last-child{border-bottom:none}
+.nsCritRow .cn{opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%}
+.nsCritRow .cv{font-weight:700;font-variant-numeric:tabular-nums}
+.nsGradeBig.tier-song{--tier-color:#8991a0;--glow-color:rgba(137,145,160,.55)}
+.nsGradeBig.tier-wan{--tier-color:#8bc34a;--glow-color:rgba(139,195,74,.6)}
+.nsGradeBig.tier-bak{--tier-color:#40b4e6;--glow-color:rgba(64,180,230,.6)}
+.nsGradeBig.tier-bae{--tier-color:#9256d9;--glow-color:rgba(146,86,217,.6)}
+.nsGradeBig.tier-beom{--tier-color:#c3c8d1;--glow-color:rgba(211,216,224,.85)}
+.nsGradeBig.tier-do{--tier-color:#e0b32a;--glow-color:rgba(224,179,42,.8)}
+.nsGradeBig.tier-yang{--tier-color:#ff5ea8;--glow-color:rgba(255,255,255,.85)}
 .gradeCardInner{position:relative;width:100%;height:100%;transform-style:preserve-3d;
   transition:transform 1.3s cubic-bezier(.3,.15,.15,1)}
 .gradeCardInner.flipped{transform:rotateY(180deg)}
@@ -176,7 +183,9 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
   padding:20px 14px;box-shadow:0 10px 28px rgba(0,0,0,.4);overflow:hidden}
 .gradeFace.back{background:linear-gradient(150deg,#30333c,#1a1c22);color:#fff}
 .gradeFace.back .backmark{font-size:44px;opacity:.45}
-.spinMask{position:absolute;inset:0;background:#000;border-radius:inherit;z-index:5}
+/* 도급/양급이 회전하는 동안 앞면을 뒷면과 똑같은 모습으로 바꿔, 내용과 글로우가 보이지 않게 한다 */
+.gradeFace.front.spinlook{background:linear-gradient(150deg,#30333c,#1a1c22)!important;color:#fff!important;
+  border:none!important;box-shadow:0 10px 28px rgba(0,0,0,.4)!important;animation:none!important}
 .gradeFace.front{background:linear-gradient(160deg,#fff 0%,var(--tier-bg,#fff) 100%);color:#1c1e24;transform:rotateY(180deg);
   border:4px solid var(--tier-color,#ccc);animation:gradeGlow 2s ease-in-out infinite}
 .gradeFace .gbadge{display:inline-block;border-radius:999px;
@@ -1631,15 +1640,15 @@ function buildRevealList(g){
   return list;
 }
 const MANUAL_TIERS=new Set(["beom","do","yang"]);
-/* 도급/양급 카드 공개 연출: 뒤집기 전에 빠르게 n바퀴 회전시키다가 마지막에 앞면에서 착지(슬롯머신처럼)
-   회전 중에는 앞면 위에 검은 마스크를 덮어, 돌아가는 도중 앞면 내용이 잠깐씩 보이지 않게 한다. */
-async function spinRevealCard(inner, front, laps, durMul){
-  durMul=durMul||1;
+/* 도급/양급 카드 공개 연출: 뒤집기 전에 n바퀴 회전시키다가 마지막에 앞면에서 착지(슬롯머신처럼)
+   회전 중에는 앞면을 뒷면과 똑같은 모습(spinlook)으로 바꿔서, 내용과 글로우가 전혀 보이지 않게 한다. */
+async function spinRevealCard(inner, front, laps, durSec){
   const totalDeg=laps*360+180;
-  const dur=Math.max(0.6, laps*0.35+0.3)*durMul;
-  const mask=document.createElement("div");
-  mask.className="spinMask";
-  front.appendChild(mask);
+  const dur=durSec||4;
+  const origClass=front.className;
+  const origHTML=front.innerHTML;
+  front.className="gradeFace front spinlook";
+  front.innerHTML="<div class='backmark'>?</div>";
   inner.style.transition="transform "+dur.toFixed(2)+"s cubic-bezier(.12,.7,.25,1)";
   void inner.offsetWidth;
   inner.style.transform="rotateY("+totalDeg+"deg)";
@@ -1647,38 +1656,51 @@ async function spinRevealCard(inner, front, laps, durMul){
   inner.style.transition="none";
   inner.style.transform="rotateY(180deg)";
   void inner.offsetWidth;
+  front.className=origClass;
+  front.innerHTML=origHTML;
+  void front.offsetWidth;
   inner.classList.add("flipped");
   inner.style.transition="";
   inner.style.transform="";
-  try{mask.remove();}catch(e){}
 }
-/* 발표 연출 2안: 가운데 큰 이름 → 이름은 왼쪽으로, 오른쪽에 큰 등급 + 그 밑에 작게 등수 */
-function buildNameSlideCard(item){
+/* 발표 연출 2안: 가운데 큰 이름이 뜬 뒤 그대로(폰트 그대로) 위로 올라가고,
+   아래쪽에 왼쪽 큰 등급 + 오른쪽 항목별 점수/등수 목록이 함께 드러난다 */
+function buildNameSlideCard(item, g){
   const wrap=document.createElement("div");
   wrap.className="nsWrap";
   const nameEl=document.createElement("div");
   nameEl.className="nsName";
   nameEl.textContent=item.name;
-  const resultEl=document.createElement("div");
-  resultEl.className="nsResult";
+  const body=document.createElement("div");
+  body.className="nsBody";
   const rankTxt=(item.rank!==null && item.rank!==undefined) ? ordinal(item.rank) : "–";
-  resultEl.innerHTML="<div class='nsGrade tier-"+item.tier+"'>"+(item.special?"✨ ":"")+esc(item.gradeName)+"</div>"+
-    "<div class='nsRank'>"+num(item.total,2)+"점 · "+rankTxt+"</div>";
-  wrap.appendChild(nameEl); wrap.appendChild(resultEl);
+  let critHTML="";
+  if(item.per && g.criteria && g.criteria.length){
+    critHTML="<div class='nsCritList'>"+g.criteria.map((c,ci)=>{
+      const p=item.per[ci];
+      const val=(p && p.pts!==null && p.pts!==undefined) ? num(p.pts,2) : "–";
+      const critRank=(item.critRank && item.critRank[ci]!==undefined) ? item.critRank[ci] : null;
+      const rk=(critRank!==null) ? ordinal(critRank) : "–";
+      return "<div class='nsCritRow'><span class='cn'>"+esc(c.name)+"</span><span class='cv'>"+val+"점 ("+rk+")</span></div>";
+    }).join("")+"</div>";
+  }
+  body.innerHTML="<div class='nsGradeWrap'><div class='nsGradeBig tier-"+item.tier+"'>"+(item.special?"✨ ":"")+esc(item.gradeName)+"</div>"+
+    "<div class='nsRank'>"+num(item.total,2)+"점 · "+rankTxt+"</div></div>"+critHTML;
+  wrap.appendChild(nameEl); wrap.appendChild(body);
   return wrap;
 }
 async function playNameSlideTransition(wrap, skipped){
   const nameEl=wrap.querySelector(".nsName");
-  const resultEl=wrap.querySelector(".nsResult");
+  const body=wrap.querySelector(".nsBody");
   if(skipped){
-    nameEl.classList.add("toLeft");
-    resultEl.classList.add("show");
+    nameEl.classList.add("toTop");
+    body.classList.add("show");
     await sleep(80);
     return;
   }
-  nameEl.classList.add("toLeft");
+  nameEl.classList.add("toTop");
   await sleep(550);
-  resultEl.classList.add("show");
+  body.classList.add("show");
   await sleep(500);
 }
 /* 방 공용(Firebase) gradeAdvance 값이 baseline보다 커질 때까지, 또는 gradeSkipAll이 켜질 때까지 기다린다.
@@ -1868,7 +1890,7 @@ async function playGradeReveal(g, opts){
     }
     let wrap, inner, front;
     if(style==="slide"){
-      wrap=buildNameSlideCard(item);
+      wrap=buildNameSlideCard(item, g);
       stage.appendChild(wrap);
     }else{
       wrap=document.createElement("div");
@@ -1918,9 +1940,9 @@ async function playGradeReveal(g, opts){
     if(style==="slide"){
       await playNameSlideTransition(wrap, skipped);
     }else if(!skipped && item.tier==="do"){
-      await spinRevealCard(inner, front, 2, 2);
+      await spinRevealCard(inner, front, 2, 4);
     }else if(!skipped && item.tier==="yang"){
-      await spinRevealCard(inner, front, 4, 2);
+      await spinRevealCard(inner, front, 4, 4);
     }else{
       inner.classList.add("flipped");
     }
