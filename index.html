@@ -205,9 +205,9 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .gperitem{display:flex;justify-content:space-between;gap:8px;padding:calc(5px*var(--fscale,1)) 4px;
   border-top:1px solid rgba(0,0,0,.08)}
 .gperitem:first-child{border-top:none}
-.gpn{opacity:.62;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%}
+.gpn{opacity:.62;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0}
 .gpmax{opacity:1;color:#9aa0a8;font-weight:400;font-size:.72em;margin-left:3px}
-.gpv{font-weight:700;font-variant-numeric:tabular-nums}
+.gpv{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;flex:0 0 auto}
 .gnum{font-weight:800}
 .rank-gold{color:#e0b32a}
 .rank-silver{color:#9aa2b0}
@@ -789,7 +789,7 @@ let ticking=false;
 async function hostTick(){
   if(ticking||!isHost()||!S.room) return;
   const T=S.room.targets.length;
-  if(S.room.phase!=="scoring"||!T) return;
+  if(S.room.phase!=="scoring"||!T||S.room.oxMode) return;
   ticking=true;
   try{
     if(S.room.mode==="sync"){
@@ -1033,7 +1033,7 @@ async function createRoom(seed){
   const room={
     code, hostMemberId:mid, createdAt:Date.now(),
     phase:"setup", mode:(seed&&seed.mode)||"sync", order:(seed&&seed.order)||"seq", trim:!!(seed&&seed.trim),
-    gradesRevealed:false,
+    gradesRevealed:false, oxMode:!!(seed&&seed.oxMode),
     gradeMode:(seed&&seed.gradeMode)||"tier", survivalRank:(seed&&seed.survivalRank)||null,
     revealStyle:(seed&&seed.revealStyle)||"card",
     maxTotal:(seed&&seed.maxTotal)||100,
@@ -1261,10 +1261,10 @@ function render(force){
   else if(S.screen==="singlecollect") html=viewSingleCollect();
   else if(!S.room) html='<div class="card muted">방 정보를 불러오는 중…</div>';
   else if(S.room.phase==="setup") html=viewSetup();
-  else if(S.room.phase==="scoring") html=viewScoring();
-  else html=viewResults();
+  else if(S.room.phase==="scoring") html=S.room.oxMode?viewOX():viewScoring();
+  else html=S.room.oxMode?viewOXResults():viewResults();
 
-  const sig=S.screen+"|"+(S.room?S.room.phase+"|"+S.room.mode+"|"+S.room.order+"|"+(!!S.room.trim)+"|"+(!!S.room.gradesRevealed)+"|"+(S.room.gradeMode||"tier")+"|"+(S.room.survivalRank||"")+"|"+(S.room.revealStyle||"card")+"|"+myCursor()+"|"+S.room.targets.length+"|"+S.room.criteria.length+"|"+S.room.maxTotal:"")+"|"+S.err+"|"+S.banner+"|"+(S.modal?S.modal.kind||"m":"")+"|"+(S.resultOrder||"")+"|"+(S.testUnlocked?1:0);
+  const sig=S.screen+"|"+(S.room?S.room.phase+"|"+S.room.mode+"|"+S.room.order+"|"+(!!S.room.trim)+"|"+(!!S.room.gradesRevealed)+"|"+(S.room.gradeMode||"tier")+"|"+(S.room.survivalRank||"")+"|"+(S.room.revealStyle||"card")+"|"+oxSig()+"|"+myCursor()+"|"+S.room.targets.length+"|"+S.room.criteria.length+"|"+S.room.maxTotal:"")+"|"+S.err+"|"+S.banner+"|"+(S.modal?S.modal.kind||"m":"")+"|"+(S.resultOrder||"")+"|"+(S.testUnlocked?1:0);
   if(!force&&sig===S.lastSig&&S.room&&S.screen==="room"){ refreshLive(); return; }
   S.lastSig=sig;
   APP.innerHTML=(S.modal?modalHTML():"")+html;
@@ -1491,6 +1491,63 @@ function participantsHTML(){
   }).join("")+'</div>';
 }
 
+/* ───────── O/X 투표(과반수) ───────── */
+function oxState(){
+  const o=obj(S.room.ox), T=S.room.targets.length;
+  return {cursor:Math.min(Math.max(0,o.cursor||0),Math.max(0,T-1)), round:o.round||1, closed:!!o.closed};
+}
+const oxVotes = ti => obj(obj(S.room.oxVotes)[ti]);
+function oxTally(ti){
+  const v=oxVotes(ti), act=new Set(activeMembers().map(m=>m.id)); let o=0,x=0;
+  Object.keys(v).forEach(id=>{ if(!act.has(id)) return; if(v[id]==="O") o++; else if(v[id]==="X") x++; });
+  return {o,x};
+}
+function oxSig(){
+  if(!S.room||!S.room.oxMode) return "";
+  const st=oxState(), t=oxTally(st.cursor);
+  return "ox"+st.cursor+"."+st.round+"."+(st.closed?1:0)+"."+t.o+"."+t.x+"."+(oxVotes(st.cursor)[S.memberId]||"");
+}
+function viewOX(){
+  const R0=S.room, T=R0.targets.length, st=oxState(), ti=st.cursor, host=isHost();
+  const act=activeMembers(), votes=oxVotes(ti), mine=votes[S.memberId]||"";
+  const voted=act.filter(m=>votes[m.id]==="O"||votes[m.id]==="X").length, t=oxTally(ti);
+  const res=obj(obj(R0.oxRes)[ti]);
+  let h=bannerHTML()+errHTML();
+  let left='<div class="card"><div class="small muted">O/X 투표 · 항목 '+(ti+1)+' / '+T+(st.round>1?' · 재투표 '+st.round+'회차':'')+'</div>'+
+    '<h2 style="font-size:26px;margin:10px 0 0;overflow-wrap:anywhere">'+esc(R0.targets[ti])+'</h2>'+
+    '<div class="bar"><i style="width:'+Math.round((ti+1)/T*100)+'%"></i></div></div>';
+  if(!st.closed){
+    left+='<div class="card"><div class="row" style="gap:14px">'+
+      ['O','X'].map(v=>'<button data-act="oxvote" data-v="'+v+'" class="'+(mine===v?"primary":"")+'" style="flex:1;font-size:44px;padding:28px 0;font-weight:800;'+(v==="O"?"color:var(--ok)":"color:var(--bad)")+(mine===v?";color:var(--accent-fg)":"")+'">'+v+'</button>').join("")+
+      '</div><p class="small muted" style="margin-top:10px">'+(mine?'내 선택: <b>'+mine+'</b> (마감 전까지 바꿀 수 있습니다)':'O 또는 X를 눌러 주세요.')+' · 투표 '+voted+' / '+act.length+'명</p>'+
+      (host?'<div class="row" style="margin-top:10px"><button class="primary" data-act="oxclose">투표 마감</button></div><p class="tiny muted" style="margin-top:6px">마감하면 결과가 공개됩니다. O와 X가 같으면 자동으로 재투표합니다.</p>':'<p class="tiny muted">방장이 마감하면 결과가 공개됩니다.</p>')+'</div>';
+  }else{
+    const ok=res.r==="O";
+    left+='<div class="card" style="text-align:center"><div style="font-size:84px;font-weight:800;line-height:1.1;color:'+(ok?"var(--ok)":"var(--bad)")+'">'+esc(res.r||"–")+'</div>'+
+      '<div style="font-size:18px;margin-top:4px">O '+(res.o||0)+' : X '+(res.x||0)+' · '+(ok?"찬성":"반대")+' 과반</div>'+
+      '<div class="statuslist" style="margin-top:14px;text-align:left">'+act.map(m=>{ const v=votes[m.id]; return '<div class="statusrow"><span>'+esc(m.name||"이름없음")+'</span><b style="color:'+(v==="O"?"var(--ok)":v==="X"?"var(--bad)":"var(--muted)")+'">'+(v||"미투표")+'</b></div>'; }).join("")+'</div>'+
+      (host?'<div class="row" style="margin-top:14px;justify-content:center"><button class="primary" data-act="oxnext">'+(ti+1<T?"다음 항목 →":"전체 결과 보기")+'</button></div>':'<p class="small muted" style="margin-top:12px">방장이 다음으로 넘깁니다.</p>')+'</div>';
+  }
+  let right='<div class="card"><h3>참가자 투표 현황</h3><div class="statuslist">'+act.map(m=>{ const d=votes[m.id]==="O"||votes[m.id]==="X";
+    return '<div class="statusrow'+(d?" done":"")+'"><span>'+esc(m.name||"이름없음")+(m.id===R0.hostMemberId?" 👑":"")+'</span><span class="'+(d?"ok":"muted")+'">'+(d?"투표함":"고민 중..")+'</span></div>'; }).join("")+'</div></div>';
+  right+='<div class="card">'+chatPanelHTML()+'</div>';
+  right+='<div class="card"><div class="row">'+(host?'<button class="sm" data-act="forceresult">결과 보기(방장)</button>':'')+'<button class="sm ghost" data-act="leave">방 나가기</button></div></div>';
+  return h+'<div class="scoregrid"><div class="col">'+left+'</div><div class="col">'+right+'</div></div>';
+}
+function viewOXResults(){
+  const R0=S.room, res=obj(R0.oxRes);
+  const rows=R0.targets.map((n,i)=>({n,r:obj(res[i])}));
+  const yes=rows.filter(x=>x.r.r==="O").length, no=rows.filter(x=>x.r.r==="X").length;
+  let h=bannerHTML()+errHTML();
+  h+='<div class="card"><h2 style="margin:0 0 4px">O/X 투표 결과</h2><p class="small muted">통과(O) '+yes+' · 부결(X) '+no+' · 미결정 '+(rows.length-yes-no)+'</p>'+
+    '<div class="tablewrap"><table><thead><tr><th>항목</th><th class="num">O</th><th class="num">X</th><th>결과</th></tr></thead><tbody>'+
+    rows.map(x=>'<tr><td style="white-space:normal">'+esc(x.n)+'</td><td class="num">'+(x.r.o??"–")+'</td><td class="num">'+(x.r.x??"–")+'</td><td><b style="color:'+(x.r.r==="O"?"var(--ok)":x.r.r==="X"?"var(--bad)":"var(--muted)")+'">'+(x.r.r||"–")+'</b></td></tr>').join("")+
+    '</tbody></table></div></div>';
+  h+='<div class="card">'+chatPanelHTML()+'</div>';
+  h+='<div class="card"><div class="row">'+(isHost()?'<button class="sm" data-act="backscore">투표로 돌아가기</button>':'')+'<button class="sm ghost" data-act="leave">방 나가기</button></div></div>';
+  return h;
+}
+
 function viewSetup(){
   const R0=S.room, host=isHost(), crits=R0.criteria;
   const sum=crits.reduce((a,c)=>a+(Number(c.max)||0),0);
@@ -1516,15 +1573,15 @@ function viewSetup(){
   if(crits.length && Math.abs(sum-(Number(R0.maxTotal)||0))>0.001)
     right+='<div class="banner warn" style="margin-top:12px">항목 배점의 합('+num(sum,2)+')이 만점('+esc(R0.maxTotal)+')과 다릅니다. '+
        '총점은 만점 기준으로 환산해 계산합니다.</div>';
-  right+='<p class="small muted" style="margin-top:10px">모드: <b>'+(R0.mode==="sync"?"모두 동시에 매기기":"각자 매기기")+
+  right+='<p class="small muted" style="margin-top:10px">방식: <b>'+(R0.oxMode?"O/X 투표(과반수)":"점수 매기기")+'</b> · 모드: <b>'+(R0.mode==="sync"?"모두 동시에 매기기":"각자 매기기")+
      '</b> · 순서: <b>'+(R0.order==="random"?"무작위":"순서대로")+
      '</b> · 등급 기준: <b>'+(R0.gradeMode==="survival"?("생존/탈락"+(R0.survivalRank?" ("+esc(R0.survivalRank)+"등까지 생존)":" (생존 등수 미설정)")):"지금 채점 기준(등급)")+'</b></p>';
   right+=(host?'<p class="tiny muted" style="margin-top:6px">파일 불러오기, 모드, 순서, 등급 기준은 ‘⚙ 설정’에서 바꿀 수 있습니다.</p>':"")+'</div>';
 
   if(host){
-    const ready=R0.targets.length>0&&crits.length>0;
+    const ready=R0.targets.length>0&&(R0.oxMode||crits.length>0);
     right+='<div class="card"><button class="primary" data-act="start" style="width:100%;padding:16px;font-size:17px"'+(ready?"":" disabled")+'>시작하기</button>'+
-       (ready?"":'<p class="small muted" style="margin-top:8px">‘⚙ 설정’에서 두 파일을 모두 불러와야 시작할 수 있습니다.</p>')+
+       (ready?"":'<p class="small muted" style="margin-top:8px">‘⚙ 설정’에서 '+(R0.oxMode?"대상(항목) 목록 파일을":"두 파일을 모두")+' 불러와야 시작할 수 있습니다.</p>')+
        (R0.resumed?'<p class="small" style="margin-top:8px">이어하기 데이터가 불러와졌습니다. 기존 점수는 유지됩니다.</p>':"")+'</div>';
   }else right+='<div class="card muted">방장이 시작하기를 누르면 자동으로 시작됩니다.</div>';
 
@@ -2420,6 +2477,11 @@ function settingsModalHTML(){
   }else h+='<p class="small muted">방장만 파일을 불러올 수 있습니다.</p>';
   h+='</div>';
 
+  h+='<div style="margin-top:18px"><h3>방식</h3><div class="seg">'+
+     '<button data-act="oxmode" data-ox="0" class="'+(!R0.oxMode?"on":"")+'"'+(host&&R0.phase==="setup"?"":" disabled")+'>점수 매기기</button>'+
+     '<button data-act="oxmode" data-ox="1" class="'+(R0.oxMode?"on":"")+'"'+(host&&R0.phase==="setup"?"":" disabled")+'>O/X 투표</button></div>'+
+     '<p class="small muted" style="margin-top:8px">'+(R0.oxMode?"대상 목록의 항목이 하나씩 뜨고, 각자 O/X를 누르면 방장이 마감할 때 과반수로 결정됩니다. 동률이면 재투표합니다. 항목·배점 파일은 필요 없습니다.":"항목별로 점수를 매겨 등급을 발표합니다.")+'</p></div>';
+
   h+='<div style="margin-top:18px"><h3>모드</h3><div class="seg">'+
      '<button data-act="mode" data-mode="sync" class="'+(R0.mode==="sync"?"on":"")+'"'+(host?"":" disabled")+'>모두 동시에 매기기</button>'+
      '<button data-act="mode" data-mode="solo" class="'+(R0.mode==="solo"?"on":"")+'"'+(host?"":" disabled")+'>각자 매기기</button></div>'+
@@ -2681,6 +2743,28 @@ async function handle(act,d){
     else if(act==="joinnew"){ if(!S.name){S.err="이름을 입력하세요.";return render(true);} await joinAsNew(S.pending.code); }
     else if(act==="home"){ S.pending=null; S.screen="lobby"; render(true); }
     else if(act==="leave"){ await leaveRoom(); }
+    else if(act==="oxmode"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await update(R(Proom(S.code)),{oxMode:d.ox==="1"}); }
+    else if(act==="oxvote"){
+      if(S.room.phase!=="scoring"||oxState().closed) return;
+      await update(R(Proom(S.code)),{["oxVotes/"+oxState().cursor+"/"+S.memberId]:d.v});
+    }
+    else if(act==="oxclose"){
+      if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);}
+      const st=oxState(), t=oxTally(st.cursor);
+      if(t.o+t.x===0){ S.err="아직 투표한 사람이 없습니다."; return render(true); }
+      if(t.o===t.x){
+        await update(R(Proom(S.code)),{["oxVotes/"+st.cursor]:null,"ox/round":st.round+1,"ox/closed":false});
+        S.banner="동률("+t.o+" : "+t.x+")이라 재투표를 시작했습니다.";
+      }else{
+        await update(R(Proom(S.code)),{"ox/closed":true,["oxRes/"+st.cursor]:{r:t.o>t.x?"O":"X",o:t.o,x:t.x}});
+      }
+    }
+    else if(act==="oxnext"){
+      if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);}
+      const st=oxState();
+      if(st.cursor+1<S.room.targets.length) await update(R(Proom(S.code)),{ox:{cursor:st.cursor+1,round:1,closed:false}});
+      else await update(R(Proom(S.code)),{phase:"results"});
+    }
     else if(act==="mode"){ await update(R(Proom(S.code)),{mode:d.mode}); }
     else if(act==="order"){ await update(R(Proom(S.code)),{order:d.order}); }
     else if(act==="trim"){ await update(R(Proom(S.code)),{trim:d.trim==="1"}); }
@@ -2702,7 +2786,9 @@ async function handle(act,d){
     else if(act==="kick"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await kickMember(d.mid); }
     else if(act==="start"){
       const targets = S.room.order==="random" ? shuffleArr(S.room.targets) : S.room.targets;
-      await update(R(Proom(S.code)),{phase:"scoring", targets});
+      const up={phase:"scoring", targets};
+      if(S.room.oxMode){ up.ox={cursor:0,round:1,closed:false}; up.oxVotes=null; up.oxRes=null; }
+      await update(R(Proom(S.code)),up);
       S.draftFor=null; S.banner="";
     }
     else if(act==="skip"){ S.skip[d.ci]=!S.skip[d.ci]; if(S.skip[d.ci]){ S.draft[d.ci]=""; delete S.draftVal[d.ci]; } render(true); }
