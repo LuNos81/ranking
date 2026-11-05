@@ -95,6 +95,13 @@ pre.fmt{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:none;border-radius:0;background:transparent}
 .seg button.on{background:var(--accent);color:var(--accent-fg)}
+/* 고뽑 등급 투표 */
+.gvGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}
+button.gvBtn{color:#1a1a1a;font-weight:800;font-size:15px;padding:14px 6px;border:2px solid rgba(0,0,0,.15);transition:transform .1s, box-shadow .1s}
+button.gvBtn:hover{transform:translateY(-2px)}
+button.gvBtn.on{border-color:var(--fg);box-shadow:0 0 0 3px var(--accent);transform:scale(1.04)}
+.gvChip{display:inline-block;padding:2px 10px;border-radius:999px;color:#1a1a1a;font-weight:800;font-size:13px;border:1px solid rgba(0,0,0,.15);white-space:nowrap}
+.gvChip.big{font-size:30px;padding:6px 26px}
 .seg.sm button{padding:5px 10px;font-size:12.5px}
 #pageTitle.big{font-size:26px}
 .setupgrid,.scoregrid{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
@@ -789,7 +796,7 @@ let ticking=false;
 async function hostTick(){
   if(ticking||!isHost()||!S.room) return;
   const T=S.room.targets.length;
-  if(S.room.phase!=="scoring"||!T||S.room.oxMode) return;
+  if(S.room.phase!=="scoring"||!T||S.room.oxMode||S.room.gradeVote) return;
   ticking=true;
   try{
     if(S.room.mode==="sync"){
@@ -1033,7 +1040,7 @@ async function createRoom(seed){
   const room={
     code, hostMemberId:mid, createdAt:Date.now(),
     phase:"setup", mode:(seed&&seed.mode)||"sync", order:(seed&&seed.order)||"seq", trim:!!(seed&&seed.trim),
-    gradesRevealed:false, oxMode:!!(seed&&seed.oxMode),
+    gradesRevealed:false, oxMode:!!(seed&&seed.oxMode), gradeVote:!!(seed&&seed.gradeVote),
     gradeMode:(seed&&seed.gradeMode)||"tier", survivalRank:(seed&&seed.survivalRank)||null,
     revealStyle:(seed&&seed.revealStyle)||"card",
     maxTotal:(seed&&seed.maxTotal)||100,
@@ -1261,10 +1268,10 @@ function render(force){
   else if(S.screen==="singlecollect") html=viewSingleCollect();
   else if(!S.room) html='<div class="card muted">방 정보를 불러오는 중…</div>';
   else if(S.room.phase==="setup") html=viewSetup();
-  else if(S.room.phase==="scoring") html=S.room.oxMode?viewOX():viewScoring();
-  else html=S.room.oxMode?viewOXResults():viewResults();
+  else if(S.room.phase==="scoring") html=S.room.gradeVote?viewGV():S.room.oxMode?viewOX():viewScoring();
+  else html=S.room.gradeVote?viewGVResults():S.room.oxMode?viewOXResults():viewResults();
 
-  const sig=S.screen+"|"+(S.room?S.room.phase+"|"+S.room.mode+"|"+S.room.order+"|"+(!!S.room.trim)+"|"+(!!S.room.gradesRevealed)+"|"+(S.room.gradeMode||"tier")+"|"+(S.room.survivalRank||"")+"|"+(S.room.revealStyle||"card")+"|"+oxSig()+"|"+myCursor()+"|"+S.room.targets.length+"|"+S.room.criteria.length+"|"+S.room.maxTotal:"")+"|"+S.err+"|"+S.banner+"|"+(S.modal?S.modal.kind||"m":"")+"|"+(S.resultOrder||"")+"|"+(S.testUnlocked?1:0);
+  const sig=S.screen+"|"+(S.room?S.room.phase+"|"+S.room.mode+"|"+S.room.order+"|"+(!!S.room.trim)+"|"+(!!S.room.gradesRevealed)+"|"+(S.room.gradeMode||"tier")+"|"+(S.room.survivalRank||"")+"|"+(S.room.revealStyle||"card")+"|"+oxSig()+"|"+gvSig()+"|"+(S.room.gradeVote?1:0)+"|"+myCursor()+"|"+S.room.targets.length+"|"+S.room.criteria.length+"|"+S.room.maxTotal:"")+"|"+S.err+"|"+S.banner+"|"+(S.modal?S.modal.kind||"m":"")+"|"+(S.resultOrder||"")+"|"+(S.testUnlocked?1:0);
   if(!force&&sig===S.lastSig&&S.room&&S.screen==="room"){ refreshLive(); return; }
   S.lastSig=sig;
   APP.innerHTML=(S.modal?modalHTML():"")+html;
@@ -1548,6 +1555,110 @@ function viewOXResults(){
   return h;
 }
 
+/* ───────── 고뽑 등급 투표 (Common~God, Joker 제외) ─────────
+   항목이 하나씩 뜨고 각자 등급을 고름 → 방장이 마감하면 "등급별 몇 명" + 평균 등급 공개
+   → 방장이 그 항목의 최종 등급을 고름 (평균 등급 추천) → 다음 항목 → 다 끝나면 최종 결과 창
+   평균 등급 : Common=1 … God=13 으로 두고 평균을 내서 반올림한 등급 */
+const GV_GRADES=["Common","Uncommon","Rare","Epic","Legendary","Ultimate","Immortal","Mythic","Divine","Eternal","Origin","Celestial","God"];
+const GV_COLOR={Common:"#bdbdbd",Uncommon:"#94ff9b",Rare:"#70deff",Epic:"#e570ff",Legendary:"#ffd470",Ultimate:"#7f90f0",Immortal:"#ff7070",
+  Mythic:"#ff70a0",Divine:"#ffffb5",Eternal:"#ff9970",Origin:"#c6ff70",Celestial:"#9470ff",God:"#fff870"};
+function gvChip(g){ return '<span class="gvChip" style="background:'+GV_COLOR[g]+'">'+esc(g)+'</span>'; }
+function gvState(){
+  const o=obj(S.room.gv), T=S.room.targets.length;
+  return {cursor:Math.min(Math.max(0,o.cursor||0),Math.max(0,T-1)), closed:!!o.closed};
+}
+const gvVotes = ti => obj(obj(S.room.gvVotes)[ti]);
+/* 지금 방에 있는 사람들의 표 → {counts:{등급:명}, n, avg, grade} */
+function gvTally(ti){
+  const v=gvVotes(ti), act=new Set(activeMembers().map(m=>m.id)), counts={};
+  Object.keys(v).forEach(id=>{ if(!act.has(id)||!GV_GRADES.includes(v[id])) return; counts[v[id]]=(counts[v[id]]||0)+1; });
+  return gvSummary(counts);
+}
+function gvSummary(counts){
+  let n=0, sum=0; counts=obj(counts);
+  GV_GRADES.forEach((g,k)=>{ const c=Number(counts[g])||0; n+=c; sum+=c*(k+1); });
+  const avg=n?sum/n:0;
+  return {counts, n, avg, grade:n?GV_GRADES[Math.min(13,Math.max(1,Math.round(avg)))-1]:null};
+}
+/* "God 2명 · Celestial 1명" (높은 등급부터, 고른 사람이 있는 등급만) */
+function gvDistHTML(counts){
+  const list=GV_GRADES.slice().reverse().filter(g=>obj(counts)[g]>0);
+  if(!list.length) return '<span class="muted">투표 없음</span>';
+  return list.map(g=>gvChip(g)+' <b>'+counts[g]+'명</b>').join('<span class="muted"> · </span>');
+}
+function gvAvgHTML(sm){
+  if(!sm.n) return '<span class="muted">–</span>';
+  return gvChip(sm.grade)+' <span class="small muted">(평균 '+num(sm.avg,2)+')</span>';
+}
+function gvSig(){
+  if(!S.room||!S.room.gradeVote) return "";
+  const st=gvState(), t=gvTally(st.cursor);
+  return "gv"+st.cursor+"."+(st.closed?1:0)+"."+(obj(obj(S.room.gvRes)[st.cursor]).final||"")+"."+t.n+"."+JSON.stringify(t.counts)+"."+(gvVotes(st.cursor)[S.memberId]||"")+"."+JSON.stringify(obj(S.room.gvRes)[st.cursor]||"");
+}
+function viewGV(){
+  const R0=S.room, T=R0.targets.length, st=gvState(), ti=st.cursor, host=isHost();
+  const act=activeMembers(), votes=gvVotes(ti), mine=votes[S.memberId]||"";
+  const voted=act.filter(m=>GV_GRADES.includes(votes[m.id])).length;
+  let h=bannerHTML()+errHTML();
+  let left='<div class="card"><div class="small muted">고뽑 등급 투표 · 항목 '+(ti+1)+' / '+T+'</div>'+
+    '<h2 style="font-size:26px;margin:10px 0 0;overflow-wrap:anywhere">'+esc(R0.targets[ti])+'</h2>'+
+    '<div class="bar"><i style="width:'+Math.round((ti+1)/T*100)+'%"></i></div></div>';
+  if(!st.closed){
+    left+='<div class="card"><div class="gvGrid">'+
+      GV_GRADES.slice().reverse().map(g=>'<button data-act="gvvote" data-v="'+g+'" class="gvBtn'+(mine===g?" on":"")+'" style="background:'+GV_COLOR[g]+'">'+g+'</button>').join("")+
+      '</div><p class="small muted" style="margin-top:10px">'+(mine?'내 선택: '+gvChip(mine)+' (마감 전까지 바꿀 수 있습니다)':'이 항목에 어울리는 등급을 골라 주세요.')+' · 투표 '+voted+' / '+act.length+'명</p>'+
+      (host?'<div class="row" style="margin-top:10px"><button class="primary" data-act="gvclose">투표 마감</button></div><p class="tiny muted" style="margin-top:6px">마감하면 등급별 인원과 평균 등급이 공개됩니다.</p>':'<p class="tiny muted">방장이 마감하면 결과가 공개됩니다.</p>')+'</div>';
+  }else{
+    const sm=gvSummary(obj(obj(R0.gvRes)[ti]).counts);
+    left+='<div class="card" style="text-align:center"><div class="small muted">평균 등급</div>'+
+      '<div style="margin:8px 0 4px">'+(sm.n?'<span class="gvChip big" style="background:'+GV_COLOR[sm.grade]+'">'+esc(sm.grade)+'</span>':'–')+'</div>'+
+      '<div class="small muted">평균 '+num(sm.avg,2)+' (Common 1 ~ God 13, 반올림) · '+sm.n+'명 투표</div>'+
+      '<div style="margin-top:14px;line-height:2.1">'+gvDistHTML(sm.counts)+'</div>'+
+      '<div class="statuslist" style="margin-top:14px;text-align:left">'+act.map(m=>{ const v=votes[m.id]; return '<div class="statusrow"><span>'+esc(m.name||"이름없음")+'</span>'+(GV_GRADES.includes(v)?gvChip(v):'<b class="muted">미투표</b>')+'</div>'; }).join("")+'</div>'+
+      '</div>';
+    /* 최종 등급 : 방장이 고름 (평균 등급을 추천으로 표시) */
+    const fin=obj(obj(R0.gvRes)[ti]).final||"";
+    if(host){
+      left+='<div class="card"><h3 style="margin:0 0 4px">최종 등급 정하기</h3><p class="small muted" style="margin:0 0 10px">이 항목의 최종 결과로 쓸 등급을 골라 주세요. ★ = 평균 등급</p><div class="gvGrid">'+
+        GV_GRADES.slice().reverse().map(g=>'<button data-act="gvfinal" data-v="'+g+'" class="gvBtn'+(fin===g?" on":"")+'" style="background:'+GV_COLOR[g]+'">'+(g===sm.grade?"★ ":"")+g+'</button>').join("")+
+        '</div><div class="row" style="margin-top:12px;justify-content:space-between;align-items:center">'+
+        '<span class="small">'+(fin?'최종 등급: '+gvChip(fin):'<span class="muted">아직 안 정함</span>')+'</span>'+
+        '<span class="row tight"><button data-act="gvreopen">다시 투표</button><button class="primary" data-act="gvnext"'+(fin?"":" disabled")+'>'+(ti+1<T?"다음 항목 →":"최종 결과 보기")+'</button></span></div>'+
+        (fin?'':'<p class="tiny muted" style="margin-top:6px">최종 등급을 골라야 다음으로 넘어갈 수 있습니다.</p>')+'</div>';
+    }else{
+      left+='<div class="card" style="text-align:center">'+(fin?'<div class="small muted">방장이 정한 최종 등급</div><div style="margin-top:8px"><span class="gvChip big" style="background:'+GV_COLOR[fin]+'">'+esc(fin)+'</span></div>':'<p class="small muted" style="margin:0">방장이 최종 등급을 정하는 중입니다…</p>')+'</div>';
+    }
+  }
+  let right='<div class="card"><h3>참가자 투표 현황</h3><div class="statuslist">'+act.map(m=>{ const d=GV_GRADES.includes(votes[m.id]);
+    return '<div class="statusrow'+(d?" done":"")+'"><span>'+esc(m.name||"이름없음")+(m.id===R0.hostMemberId?" 👑":"")+'</span><span class="'+(d?"ok":"muted")+'">'+(d?"투표함":"고민 중..")+'</span></div>'; }).join("")+'</div></div>';
+  right+='<div class="card">'+chatPanelHTML()+'</div>';
+  right+='<div class="card"><div class="row">'+(host?'<button class="sm" data-act="forceresult">결과 보기(방장)</button>':'')+'<button class="sm ghost" data-act="leave">방 나가기</button></div></div>';
+  return h+'<div class="scoregrid"><div class="col">'+left+'</div><div class="col">'+right+'</div></div>';
+}
+function gvResultRows(){
+  const R0=S.room, res=obj(R0.gvRes);
+  return R0.targets.map((n,i)=>({n,i,sm:gvSummary(obj(res[i]).counts),done:!!res[i],final:obj(res[i]).final||""}));
+}
+function gvResultText(){
+  return gvResultRows().map(x=>{
+    if(!x.done||!x.sm.n) return x.n+"\t(투표 없음)";
+    const dist=GV_GRADES.slice().reverse().filter(g=>x.sm.counts[g]>0).map(g=>g+" "+x.sm.counts[g]+"명").join(", ");
+    return x.n+"\t최종 "+(x.final||"미정")+"\t평균 "+x.sm.grade+" ("+x.sm.avg.toFixed(2)+")\t"+dist;
+  }).join("\n");
+}
+function viewGVResults(){
+  const rows=gvResultRows();
+  let h=bannerHTML()+errHTML();
+  h+='<div class="card"><h2 style="margin:0 0 4px">고뽑 등급 투표 결과</h2><p class="small muted">최종 등급 = 방장이 정한 등급 · 평균 등급 = Common 1 ~ God 13 으로 두고 평균을 낸 뒤 반올림한 등급 · 투표 끝난 항목 '+rows.filter(x=>x.done).length+' / '+rows.length+'</p>'+
+    '<div class="tablewrap"><table><thead><tr><th>항목</th><th>최종 등급</th><th>등급별 인원</th><th>평균 등급</th></tr></thead><tbody>'+
+    rows.map(x=>'<tr><td style="white-space:normal">'+esc(x.n)+'</td><td style="white-space:nowrap">'+(x.final?'<span class="gvChip" style="background:'+GV_COLOR[x.final]+';font-size:15px;padding:4px 14px">'+esc(x.final)+'</span>':'<span class="muted">미정</span>')+'</td><td style="white-space:normal;line-height:2">'+(x.done?gvDistHTML(x.sm.counts):'<span class="muted">미투표</span>')+'</td><td style="white-space:nowrap">'+(x.done?gvAvgHTML(x.sm):'<span class="muted">–</span>')+'</td></tr>').join("")+
+    '</tbody></table></div>'+
+    '<div class="row" style="margin-top:12px"><button class="sm" data-act="gvdownload">결과 txt 다운로드</button></div></div>';
+  h+='<div class="card">'+chatPanelHTML()+'</div>';
+  h+='<div class="card"><div class="row">'+(isHost()?'<button class="sm" data-act="backscore">투표로 돌아가기</button>':'')+'<button class="sm ghost" data-act="leave">방 나가기</button></div></div>';
+  return h;
+}
+
 function viewSetup(){
   const R0=S.room, host=isHost(), crits=R0.criteria;
   const sum=crits.reduce((a,c)=>a+(Number(c.max)||0),0);
@@ -1573,15 +1684,15 @@ function viewSetup(){
   if(crits.length && Math.abs(sum-(Number(R0.maxTotal)||0))>0.001)
     right+='<div class="banner warn" style="margin-top:12px">항목 배점의 합('+num(sum,2)+')이 만점('+esc(R0.maxTotal)+')과 다릅니다. '+
        '총점은 만점 기준으로 환산해 계산합니다.</div>';
-  right+='<p class="small muted" style="margin-top:10px">방식: <b>'+(R0.oxMode?"O/X 투표(과반수)":"점수 매기기")+'</b> · 모드: <b>'+(R0.mode==="sync"?"모두 동시에 매기기":"각자 매기기")+
+  right+='<p class="small muted" style="margin-top:10px">방식: <b>'+(R0.gradeVote?"고뽑 등급 투표":R0.oxMode?"O/X 투표(과반수)":"점수 매기기")+'</b> · 모드: <b>'+(R0.mode==="sync"?"모두 동시에 매기기":"각자 매기기")+
      '</b> · 순서: <b>'+(R0.order==="random"?"무작위":"순서대로")+
      '</b> · 등급 기준: <b>'+(R0.gradeMode==="survival"?("생존/탈락"+(R0.survivalRank?" ("+esc(R0.survivalRank)+"등까지 생존)":" (생존 등수 미설정)")):"지금 채점 기준(등급)")+'</b></p>';
   right+=(host?'<p class="tiny muted" style="margin-top:6px">파일 불러오기, 모드, 순서, 등급 기준은 ‘⚙ 설정’에서 바꿀 수 있습니다.</p>':"")+'</div>';
 
   if(host){
-    const ready=R0.targets.length>0&&(R0.oxMode||crits.length>0);
+    const ready=R0.targets.length>0&&(R0.oxMode||R0.gradeVote||crits.length>0);
     right+='<div class="card"><button class="primary" data-act="start" style="width:100%;padding:16px;font-size:17px"'+(ready?"":" disabled")+'>시작하기</button>'+
-       (ready?"":'<p class="small muted" style="margin-top:8px">‘⚙ 설정’에서 '+(R0.oxMode?"대상(항목) 목록 파일을":"두 파일을 모두")+' 불러와야 시작할 수 있습니다.</p>')+
+       (ready?"":'<p class="small muted" style="margin-top:8px">‘⚙ 설정’에서 '+(R0.oxMode||R0.gradeVote?"대상(항목) 목록 파일을":"두 파일을 모두")+' 불러와야 시작할 수 있습니다.</p>')+
        (R0.resumed?'<p class="small" style="margin-top:8px">이어하기 데이터가 불러와졌습니다. 기존 점수는 유지됩니다.</p>':"")+'</div>';
   }else right+='<div class="card muted">방장이 시작하기를 누르면 자동으로 시작됩니다.</div>';
 
@@ -2478,9 +2589,12 @@ function settingsModalHTML(){
   h+='</div>';
 
   h+='<div style="margin-top:18px"><h3>방식</h3><div class="seg">'+
-     '<button data-act="oxmode" data-ox="0" class="'+(!R0.oxMode?"on":"")+'"'+(host&&R0.phase==="setup"?"":" disabled")+'>점수 매기기</button>'+
-     '<button data-act="oxmode" data-ox="1" class="'+(R0.oxMode?"on":"")+'"'+(host&&R0.phase==="setup"?"":" disabled")+'>O/X 투표</button></div>'+
-     '<p class="small muted" style="margin-top:8px">'+(R0.oxMode?"대상 목록의 항목이 하나씩 뜨고, 각자 O/X를 누르면 방장이 마감할 때 과반수로 결정됩니다. 동률이면 재투표합니다. 항목·배점 파일은 필요 없습니다.":"항목별로 점수를 매겨 등급을 발표합니다.")+'</p></div>';
+     '<button data-act="votemode" data-vm="score" class="'+(!R0.oxMode&&!R0.gradeVote?"on":"")+'"'+(host&&R0.phase==="setup"?"":" disabled")+'>점수 매기기</button>'+
+     '<button data-act="votemode" data-vm="ox" class="'+(R0.oxMode&&!R0.gradeVote?"on":"")+'"'+(host&&R0.phase==="setup"?"":" disabled")+'>O/X 투표</button>'+
+     '<button data-act="votemode" data-vm="grade" class="'+(R0.gradeVote?"on":"")+'"'+(host&&R0.phase==="setup"?"":" disabled")+'>고뽑 등급 투표</button></div>'+
+     '<p class="small muted" style="margin-top:8px">'+(R0.gradeVote
+       ?"대상 목록 txt(한 줄에 항목 하나)의 항목이 하나씩 뜨고, 각자 고뽑 등급(Common~God, Joker 제외)을 고릅니다. 방장이 마감하면 등급별로 몇 명이 골랐는지와 평균 등급(Common 1 ~ God 13 평균을 반올림)을 보여 줍니다. 항목·배점 파일은 필요 없습니다."
+       :R0.oxMode?"대상 목록의 항목이 하나씩 뜨고, 각자 O/X를 누르면 방장이 마감할 때 과반수로 결정됩니다. 동률이면 재투표합니다. 항목·배점 파일은 필요 없습니다.":"항목별로 점수를 매겨 등급을 발표합니다.")+'</p></div>';
 
   h+='<div style="margin-top:18px"><h3>모드</h3><div class="seg">'+
      '<button data-act="mode" data-mode="sync" class="'+(R0.mode==="sync"?"on":"")+'"'+(host?"":" disabled")+'>모두 동시에 매기기</button>'+
@@ -2744,6 +2858,43 @@ async function handle(act,d){
     else if(act==="home"){ S.pending=null; S.screen="lobby"; render(true); }
     else if(act==="leave"){ await leaveRoom(); }
     else if(act==="oxmode"){ if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);} await update(R(Proom(S.code)),{oxMode:d.ox==="1"}); }
+    else if(act==="votemode"){
+      if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);}
+      await update(R(Proom(S.code)),{oxMode:d.vm==="ox", gradeVote:d.vm==="grade"});
+    }
+    else if(act==="gvvote"){
+      if(S.room.phase!=="scoring"||gvState().closed||!GV_GRADES.includes(d.v)) return;
+      await update(R(Proom(S.code)),{["gvVotes/"+gvState().cursor+"/"+S.memberId]:d.v});
+    }
+    else if(act==="gvclose"){
+      if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);}
+      const st=gvState(), t=gvTally(st.cursor);
+      if(!t.n){ S.err="아직 투표한 사람이 없습니다."; return render(true); }
+      await update(R(Proom(S.code)),{"gv/closed":true,["gvRes/"+st.cursor]:{counts:t.counts,n:t.n,avg:t.avg,grade:t.grade}});
+    }
+    else if(act==="gvreopen"){
+      if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);}
+      const st=gvState();
+      await update(R(Proom(S.code)),{["gvVotes/"+st.cursor]:null,["gvRes/"+st.cursor]:null,"gv/closed":false});
+    }
+    else if(act==="gvfinal"){
+      if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);}
+      const st=gvState();
+      if(!st.closed||!GV_GRADES.includes(d.v)) return;
+      await update(R(Proom(S.code)),{["gvRes/"+st.cursor+"/final"]:d.v});
+    }
+    else if(act==="gvnext"){
+      if(!isHost()){S.err="방장만 사용할 수 있습니다.";return render(true);}
+      const st=gvState();
+      if(!obj(obj(S.room.gvRes)[st.cursor]).final){ S.err="최종 등급을 먼저 골라 주세요."; return render(true); }
+      if(st.cursor+1<S.room.targets.length) await update(R(Proom(S.code)),{gv:{cursor:st.cursor+1,closed:false}});
+      else await update(R(Proom(S.code)),{phase:"results"});
+    }
+    else if(act==="gvdownload"){
+      const blob=new Blob([gvResultText()],{type:"text/plain;charset=utf-8"});
+      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="등급투표_결과.txt"; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    }
     else if(act==="oxvote"){
       if(S.room.phase!=="scoring"||oxState().closed) return;
       await update(R(Proom(S.code)),{["oxVotes/"+oxState().cursor+"/"+S.memberId]:d.v});
@@ -2788,6 +2939,7 @@ async function handle(act,d){
       const targets = S.room.order==="random" ? shuffleArr(S.room.targets) : S.room.targets;
       const up={phase:"scoring", targets};
       if(S.room.oxMode){ up.ox={cursor:0,round:1,closed:false}; up.oxVotes=null; up.oxRes=null; }
+      if(S.room.gradeVote){ up.gv={cursor:0,closed:false}; up.gvVotes=null; up.gvRes=null; }
       await update(R(Proom(S.code)),up);
       S.draftFor=null; S.banner="";
     }
